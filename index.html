@@ -165,6 +165,8 @@
         padding-bottom: env(safe-area-inset-bottom, 0px); }
       arcgis-zoom { display: none; }
       .fees { margin-left: 4px; }
+      .actions { gap: 4px; padding: 4px; }
+      .actions .btn { padding: 8px 9px; font-size: 14px; }
     }
     @media (prefers-reduced-motion: no-preference) {
       .sheet, .workbar, .menu, .toast { animation: rise .16s ease-out; }
@@ -187,13 +189,23 @@
       <arcgis-zoom slot="top-left"></arcgis-zoom>
       <arcgis-home slot="top-left"></arcgis-home>
       <arcgis-locate slot="top-left"></arcgis-locate>
+      <arcgis-distance-measurement-2d slot="top-right" unit="feet" id="measure" hidden></arcgis-distance-measurement-2d>
     </arcgis-map>
     <div class="hint" id="hint"></div>
 
     <div class="actions" id="actions">
       <button class="btn primary" id="addBtn" aria-haspopup="true">+ Add tent</button>
       <button class="btn" id="listBtn">Spot list</button>
+      <button class="btn" id="measureBtn" aria-pressed="false">Measure</button>
+      <button class="btn" id="printBtn" aria-haspopup="true">Print</button>
       <button class="btn" id="undoBtn" disabled>Undo</button>
+    </div>
+
+    <div class="menu" id="printMenu" hidden>
+      <h3>Print</h3>
+      <button class="btn size" id="printPark">Whole park <small>landscape</small></button>
+      <button class="btn size" id="printView">What is on screen <small>landscape</small></button>
+      <label class="custom"><input type="checkbox" id="printList" checked style="width:auto" /> Add the spot list on the next page</label>
     </div>
 
     <div class="menu" id="menu" hidden>
@@ -569,6 +581,99 @@
       } catch (err) { setHint("Could not undo: " + (err.message || err)); }
     }
     $("undoBtn").addEventListener("click", undoLast);
+
+    // ---- measuring: while it is on, taps draw the measurement instead of picking tents ----
+    const measureEl = $("measure");
+    let measuring = false;
+    function setMeasuring(on) {
+      measuring = on;
+      measureEl.hidden = !on;
+      $("measureBtn").classList.toggle("dark", on);
+      $("measureBtn").setAttribute("aria-pressed", String(on));
+      $("measureBtn").textContent = on ? "Stop measuring" : "Measure";
+      if (on) {
+        if (work) $("wCancel").click();
+        closeSheet();
+        setHint("Tap points on the map to measure, double-tap to finish.");
+        try { measureEl.start?.(); } catch { /* the panel's own button starts it */ }
+      } else {
+        try { measureEl.clear?.(); } catch { /* nothing to clear */ }
+        setHint("");
+      }
+    }
+    $("measureBtn").addEventListener("click", () => setMeasuring(!measuring));
+
+    // ---- print: a sheet built in a new tab, printed with the browser ---------------------
+    const printMenu = $("printMenu");
+    $("printBtn").addEventListener("click", () => { printMenu.hidden = !printMenu.hidden; menu.hidden = true; });
+    document.addEventListener("click", (e) => { if (!printMenu.hidden && !e.target.closest("#printMenu, #printBtn")) printMenu.hidden = true; });
+    $("printPark").addEventListener("click", () => makePrint(true));
+    $("printView").addEventListener("click", () => makePrint(false));
+    const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    async function makePrint(wholePark) {
+      printMenu.hidden = true;
+      const tab = window.open("", "_blank");
+      if (!tab) { setHint("The browser blocked the print tab. Allow pop-ups for this page and try again."); return; }
+      tab.document.write("<p style='font:15px sans-serif;padding:24px'>Preparing the print…</p>");
+      const keep = current;
+      if (work) $("wCancel").click();
+      if (measuring) setMeasuring(false);
+      closeSheet();
+      const before = viewElement.viewpoint?.clone();
+      try {
+        if (wholePark) await viewElement.goTo(park, { animate: false });
+        await reactiveUtils.whenOnce(() => !viewElement.updating);
+        const shoot = viewElement.takeScreenshot ? (o) => viewElement.takeScreenshot(o) : (o) => viewElement.view.takeScreenshot(o);
+        const shot = await shoot({ format: "png" });
+        await loadAll();
+        const counts = Object.fromEntries(STATUSES.map((s) => [s.value, 0]));
+        let booked = 0;
+        all.forEach((a) => { const st = a.status || "Open"; counts[st] = (counts[st] || 0) + 1; if (st === "Rented") booked += a.fee || 0; });
+        const legend = STATUSES.map((s) => `<span class="k"><i style="background:${s.color}"></i>${s.value} ${counts[s.value]}</span>`).join("");
+        const rows = all.map((a) => `<tr><td>${esc(a.spot_no)}</td><td>${esc(a.tent_size)}</td><td>${esc(a.status)}</td>
+          <td>${esc(a.renter)}</td><td class="n">${a.fee == null ? "" : esc(money(a.fee))}</td><td>${esc(a.notes)}</td></tr>`).join("");
+        const today = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+        const logo = new URL("logo.png", location.href).href;
+        tab.document.open();
+        tab.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Girard Park - Festival Planning ${esc(today)}</title>
+<style>
+  @page { size: landscape; margin: 0.4in; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 11pt/1.35 Roboto, "Helvetica Neue", Arial, sans-serif; color: #1a1a1a; }
+  .bar { display: flex; align-items: center; gap: 14px; background: #000; color: #fff; padding: 10px 14px;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .bar img { height: 20px; }
+  .bar .t { font-size: 13pt; font-weight: 500; }
+  .bar .d { margin-left: auto; font-size: 10pt; color: #ccc; }
+  .legend { display: flex; gap: 16px; align-items: center; padding: 8px 2px; font-size: 10pt; flex-wrap: wrap; }
+  .k { display: inline-flex; align-items: center; gap: 6px; }
+  .k i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .legend .fee { margin-left: auto; }
+  .map { width: 100%; max-height: 6.4in; object-fit: contain; display: block; border: 1px solid #ccc; }
+  .note { font-size: 8.5pt; color: #666; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 6px; }
+  th { text-align: left; font-size: 8pt; letter-spacing: .08em; text-transform: uppercase; color: #666; border-bottom: 2px solid #000; padding: 4px 6px; }
+  td { border-bottom: 1px solid #ddd; padding: 4px 6px; vertical-align: top; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .list { break-before: page; }
+  @media screen { body { padding: 16px; max-width: 11in; margin: 0 auto; } }
+</style></head><body>
+  <div class="bar"><img src="${esc(logo)}" alt=""><span class="t">Girard Park - Festival Planning</span><span class="d">${esc(today)}</span></div>
+  <div class="legend">${legend}<span class="fee">Rented fees <b>${esc(money(booked))}</b></span></div>
+  <img class="map" src="${shot.dataUrl}" alt="Map of the tent spots">
+  <div class="note">Drone ortho flown 2026-10-09. Tent sizes are drawn true to scale.</div>
+  ${$("printList").checked ? `<div class="list"><table><thead><tr><th>Spot</th><th>Size</th><th>Status</th><th>Renter</th><th>Fee</th><th>Notes</th></tr></thead>
+  <tbody>${rows || `<tr><td colspan="6">No tents yet.</td></tr>`}</tbody></table></div>` : ""}
+  <script>window.addEventListener("load", () => setTimeout(() => window.print(), 300));<\/script>
+</body></html>`);
+        tab.document.close();
+      } catch (e) {
+        tab.document.body.textContent = "The print could not be made: " + (e.message || e);
+      } finally {
+        if (wholePark && before) viewElement.goTo(before, { animate: false }).catch(() => {});
+        if (keep) select(keep.oid);
+      }
+    }
     $("toastUndo").addEventListener("click", undoLast);
     let toastTimer = null;
     function toast(text) {
@@ -666,7 +771,7 @@
     // taps: in the bar's modes a tap moves the tent there; otherwise it selects a tent
     viewElement.addEventListener("arcgisViewClick", async (event) => {
       const p = event.detail.mapPoint;
-      if (!p) return;
+      if (!p || measuring) return;
       if (work) {
         const x = describe(work.geometry);
         work.geometry = rect(p.x, p.y, x.w, x.d, x.deg); work.armed = false;
@@ -806,6 +911,8 @@
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       if (!menu.hidden) { menu.hidden = true; return; }
+      if (!printMenu.hidden) { printMenu.hidden = true; return; }
+      if (measuring) { setMeasuring(false); return; }
       if (work) { $("wCancel").click(); return; }
       if (!sheet.hidden) closeSheet();
     });
