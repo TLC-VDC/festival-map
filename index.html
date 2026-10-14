@@ -118,9 +118,7 @@
     <button data-size="Custom">Custom</button>
     <span class="num" id="customDims"><input id="cw" type="number" min="1" step="1" value="10" /> x
       <input id="cd" type="number" min="1" step="1" value="20" /> ft</span>
-    <button id="browse" class="on">Done placing</button>
-    <span class="num">Turn <input id="turn" type="number" step="5" value="0" /> &deg;</span>
-    <button id="home">Whole park</button>
+    <button id="browse" hidden>Cancel</button>
   </div>
 
   <main>
@@ -140,7 +138,14 @@
           <dt>Notes</dt><dd id="vNotes"></dd>
         </dl>
         <p class="tip">Drag the tent to move it. Drag the ring in its middle to turn it.</p>
-        <div class="row"><button id="vEdit" class="on">Edit</button></div>
+        <div class="row"><button id="vEdit" class="on">Edit</button><button id="vAgain" hidden>Place another like this</button></div>
+      </div>
+      <!-- a new tent, not saved until Place it -->
+      <div id="newPane" hidden>
+        <h2><span>New tent</span></h2>
+        <dl class="info"><dt>Size</dt><dd id="nSize"></dd><dt>Turn</dt><dd id="nTurn"></dd></dl>
+        <p class="tip">Tap elsewhere to put it there, drag it to move it, or drag the ring to turn it. Nothing is saved until you press Place it.</p>
+        <div class="row"><button id="nPlace" class="on">Place it</button><button id="nCancel">Cancel</button></div>
       </div>
       <!-- edit form -->
       <div id="editPane" hidden>
@@ -262,21 +267,27 @@
     // ---- state ----------------------------------------------------------------------------
     let mode = "browse";       // "browse" or "place"
     let placeSize = null;
-    let current = null;        // { oid, geometry, attrs }
+    let current = null;        // { oid, geometry, attrs }: a saved tent that is selected
+    let draft = null;          // { geometry, size }: a new tent shown but not saved
+    let lastPlaced = null;     // { size, w, d, deg } for "Place another like this"
     const hint = $("hint"), panel = $("panel"), msg = $("msg");
     const say = (t, err = false) => { msg.textContent = t; msg.className = "msg" + (err ? " err" : ""); };
     const HINT_BROWSE = "Tap a tent to see it, or pick a size to place one.";
+    // placing is one tent at a time: a tap only shows a draft, Place it saves it, then the page is back to browsing
     function setMode(m, size = null) {
       mode = m; placeSize = size;
       document.querySelectorAll(".tools [data-size]").forEach((b) => b.classList.toggle("on", m === "place" && b.dataset.size === size));
-      $("browse").classList.toggle("on", m === "browse");
+      $("browse").hidden = m !== "place";
       $("customDims").classList.toggle("show", m === "place" && size === "Custom");
-      hint.textContent = m === "place" ? `Tap the ortho to place a ${size === "Custom" ? "custom" : size} tent. Tap again for another.` : HINT_BROWSE;
+      if (m === "place") { if (current) closePanel(); }
+      else if (draft) { draft = null; drawSelection(null); panel.classList.remove("show"); }
+      hint.textContent = m === "place" ? `Tap the ortho where the ${size === "Custom" ? "custom" : size} tent goes.` : HINT_BROWSE;
     }
-    setMode("browse");
     document.querySelectorAll(".tools [data-size]").forEach((b) => b.addEventListener("click", () => setMode("place", b.dataset.size)));
     $("browse").addEventListener("click", () => setMode("browse"));
-    $("home").addEventListener("click", () => viewElement.goTo(park));
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && mode === "place") setMode("browse"); });
+    hint.textContent = HINT_BROWSE;
+    let lastTurn = 0;          // a new tent starts at the turn of the last one placed or turned, so rows line up
 
     // ---- the selected tent: outline, ring and knob drawn over the layer ------------------
     const selOutline = new Graphic({ symbol: { type: "simple-fill", color: [0, 0, 0, 0],
@@ -287,8 +298,10 @@
       outline: { color: [29, 31, 33, 1], width: 2 } } });
     viewElement.graphics.addMany([selOutline, ringG, knobG]);
     const ringRadius = (g) => { const x = describe(g); return Math.max(2, Math.min(x.w, x.d) * 0.3) * FT * mercScale(x.cy); };
-    function drawSelection(geometry) {
+    function drawSelection(geometry, isDraft = false) {
       if (!geometry) { selOutline.geometry = ringG.geometry = knobG.geometry = null; return; }
+      selOutline.symbol = { type: "simple-fill", color: isDraft ? [255, 255, 255, 0.35] : [0, 0, 0, 0],
+        outline: { color: [255, 255, 255, 1], width: 2.5, style: "dash" } };
       const x = describe(geometry), r = ringRadius(geometry), sr = { wkid: 102100 };
       const pts = [];
       for (let i = 0; i <= 48; i++) { const a = (i / 48) * 2 * Math.PI; pts.push([x.cx + r * Math.sin(a), x.cy + r * Math.cos(a)]); }
@@ -328,7 +341,7 @@
       $("vFee").textContent = a.fee == null ? "-" : `$${Number(a.fee).toLocaleString()}`;
       $("vYear").textContent = a.year ?? "-";
       $("vNotes").textContent = a.notes || "-";
-      $("viewPane").hidden = false; $("editPane").hidden = true;
+      $("viewPane").hidden = false; $("editPane").hidden = true; $("newPane").hidden = true;
       panel.classList.add("show");
     }
     function showEdit() {
@@ -343,10 +356,47 @@
       $("fFee").value = a.fee ?? "";
       $("fNotes").value = a.notes || "";
       disarm();
-      $("viewPane").hidden = true; $("editPane").hidden = false;
+      $("viewPane").hidden = true; $("editPane").hidden = false; $("newPane").hidden = true;
       panel.classList.add("show");
     }
-    function closePanel() { panel.classList.remove("show"); current = null; drawSelection(null); say(""); }
+    function closePanel() { panel.classList.remove("show"); current = null; drawSelection(null); say(""); $("vAgain").hidden = true; }
+
+    // ---- the draft: a new tent shown on the map, saved only by Place it --------------------
+    function showDraft() {
+      const x = describe(draft.geometry);
+      $("nSize").textContent = draft.size === "Custom" ? `Custom, ${x.w} x ${x.d} ft` : draft.size;
+      $("nTurn").textContent = `${Math.round(x.deg)}°`;
+      $("viewPane").hidden = true; $("editPane").hidden = true; $("newPane").hidden = false;
+      drawSelection(draft.geometry, true);
+      say("");
+      panel.classList.add("show");
+    }
+    $("nCancel").addEventListener("click", () => setMode("browse"));
+    $("nPlace").addEventListener("click", async () => {
+      if (!draft) return;
+      const s = sizeOf(draft.size), x = describe(draft.geometry);
+      $("nPlace").disabled = true;
+      try {
+        const attrs = { spot_no: await nextSpotNumber(), tent_size: s.value, status: "Open", fee: s.fee, year: YEAR };
+        const r = await spots.applyEdits({ addFeatures: [new Graphic({ geometry: draft.geometry, attributes: attrs })] });
+        const res = r.addFeatureResults[0];
+        if (res.error) throw new Error(res.error.message);
+        lastPlaced = { size: s.value, w: x.w, d: x.d, deg: x.deg };
+        lastTurn = x.deg;
+        draft = null; setMode("browse");
+        refreshCounts();
+        await select(res.objectId);
+        $("vAgain").hidden = false;
+        say(`Placed spot ${attrs.spot_no}.`);
+      } catch (e) { say("Not placed: " + (e.message || e), true); }
+      finally { $("nPlace").disabled = false; }
+    });
+    $("vAgain").addEventListener("click", () => {
+      if (!lastPlaced) return;
+      if (lastPlaced.size === "Custom") { $("cw").value = lastPlaced.w; $("cd").value = lastPlaced.d; }
+      lastTurn = lastPlaced.deg;
+      setMode("place", lastPlaced.size);
+    });
     $("vClose").addEventListener("click", closePanel);
     $("vEdit").addEventListener("click", () => { say(""); showEdit(); });
     $("eCancel").addEventListener("click", () => { say(""); showView(); });
@@ -409,20 +459,14 @@
     viewElement.addEventListener("arcgisViewClick", async (event) => {
       const p = event.detail.mapPoint;
       if (!p) return;
-      if (mode === "place") {
+      if (mode === "place") {  // a tap shows or moves the draft; nothing is saved here
         const s = sizeOf(placeSize);
         const w = s.value === "Custom" ? Number($("cw").value) : s.w, d = s.value === "Custom" ? Number($("cd").value) : s.d;
         if (!(w > 0 && d > 0)) { hint.textContent = "Give the custom tent a width and depth in feet."; return; }
-        const geometry = rect(p.x, p.y, w, d, Number($("turn").value) || 0);
-        const attrs = { spot_no: await nextSpotNumber(), tent_size: s.value, status: "Open", fee: s.fee, year: YEAR };
-        try {
-          const r = await spots.applyEdits({ addFeatures: [new Graphic({ geometry, attributes: attrs })] });
-          const res = r.addFeatureResults[0];
-          if (res.error) throw new Error(res.error.message);
-          refreshCounts();
-          await select(res.objectId);
-          say(`Placed spot ${attrs.spot_no}.`);
-        } catch (e) { hint.textContent = "Not placed: " + (e.message || e); }
+        const deg = draft ? describe(draft.geometry).deg : lastTurn;
+        draft = { geometry: rect(p.x, p.y, w, d, deg), size: s.value };
+        hint.textContent = "Check it, then press Place it.";
+        showDraft();
         return;
       }
       const hit = await viewElement.hitTest(event.detail, { include: [spots] });
@@ -442,16 +486,19 @@
     let drag = null;
     viewElement.addEventListener("arcgisViewDrag", (event) => {
       const e = event.detail;
-      if (mode !== "browse" || !current) return;
+      // the draft while placing, otherwise the selected saved tent
+      const target = mode === "place" ? draft : current;
+      if (!target && !drag) return;
       if (e.action === "start") {
         const p = toMap({ x: e.x, y: e.y });
         if (!p) return;
-        const x = describe(current.geometry);
-        const onRing = Math.hypot(p.x - x.cx, p.y - x.cy) <= ringRadius(current.geometry) * 1.35;
-        if (!onRing && !insideTent(p, current.geometry)) return;  // not on the tent: the map pans
+        const x = describe(target.geometry);
+        const onRing = Math.hypot(p.x - x.cx, p.y - x.cy) <= ringRadius(target.geometry) * 1.35;
+        if (!onRing && !insideTent(p, target.geometry)) return;  // not on the tent: the map pans
         e.stopPropagation();
-        drag = { kind: onRing ? "turn" : "move", start: p, x, b0: bearing(x.cx, x.cy, p), geometry: current.geometry };
-        hideOriginal(current.oid);
+        drag = { kind: onRing ? "turn" : "move", start: p, x, b0: bearing(x.cx, x.cy, p), geometry: target.geometry,
+          isDraft: target === draft };
+        if (!drag.isDraft) hideOriginal(current.oid);
         return;
       }
       if (!drag) return;
@@ -462,14 +509,19 @@
         drag.geometry = drag.kind === "move"
           ? rect(x.cx + (p.x - drag.start.x), x.cy + (p.y - drag.start.y), x.w, x.d, x.deg)
           : rect(x.cx, x.cy, x.w, x.d, Math.round(x.deg + bearing(x.cx, x.cy, p) - drag.b0));
-        drawSelection(drag.geometry);
+        drawSelection(drag.geometry, drag.isDraft);
         hint.textContent = drag.kind === "turn" ? `Turned to ${Math.round(describe(drag.geometry).deg)}°` : "Moving";
       }
       if (e.action === "end") {
         const done = drag; drag = null;
+        if (done.isDraft) {  // the draft only moves on screen; Place it saves it
+          if (draft) { draft.geometry = done.geometry; showDraft(); }
+          hint.textContent = "Check it, then press Place it.";
+          return;
+        }
         hint.textContent = HINT_BROWSE;
         save({}, done.geometry)
-          .then(() => { say(done.kind === "turn" ? "Turned." : "Moved."); if (done.kind === "turn") $("turn").value = Math.round(describe(done.geometry).deg); })
+          .then(() => { say(done.kind === "turn" ? "Turned." : "Moved."); if (done.kind === "turn") lastTurn = describe(done.geometry).deg; })
           .catch((err) => { drawSelection(current?.geometry); say("Not saved: " + (err.message || err), true); })
           .finally(() => setTimeout(() => hideOriginal(null), 400));
       }
