@@ -2,170 +2,272 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>Festival Tent Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Girard Park - Festival Planning</title>
 
   <!-- The key is limited to this page's address, to the tent layer and the ortho, and expires.
        Paste it between the quotes. -->
   <script>
     var esriConfig = { apiKey: "AAPTaBPH8cCUwLxKFmbYZYdS4hQ..dBNvxxGIP8VLJLtbn3OgCnhesJvp50RFTX3umM9Lmgm9aML4uUK3uVRVNEznWxTUohLQVoqwLEwjU288eE_SolqpKY96X-RC5mT9MXdHe8xjTmYtGz4oI_NfTKIuNuBr-_J2PFQCBNzIqJS6h6K8Udgypl8WomWVJovOn0qANgsXyb8ZqicUZIb-IWRK3MVpCYo4FoyehRizAK0-HkmkWx5YSW_oO0XywbATShHhUlFo2PFiOkcQwGQ-bMO4CroAeTDm3Iqvm1ix563bVdpQHg..AT1_wY8WhWGL" };
   </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" />
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
 
   <style>
+    /* Layout: black brand bar, status chips as filter and legend, the map filling the rest,
+       one action bar over the map, and a side sheet (bottom sheet on phones) for spots. */
     :root {
-      --ink: #1d1f21; --muted: #5f6368; --line: #d9dce0; --paper: #ffffff; --wash: #f4f5f7;
-      --open: #2E9E5B; --held: #F2B33D; --rented: #D9483B; --blocked: #9AA0A6; --accent: #1d1f21;
+      --black: #000000;            /* brand black */
+      --yellow: #FDD023;           /* brand yellow (Pantone 123 C) */
+      --ink: #1a1a1a;
+      --grey-80: #333333;          /* black tints from the brand kit */
+      --grey-60: #666666;
+      --grey-40: #999999;
+      --grey-20: #cccccc;
+      --wash: #f3f3f1;
+      --paper: #ffffff;
+      --open: #2E9E5B; --held: #2F6FD6; --rented: #D9483B; --blocked: #8A8F98;
+      --font: "Roboto", "Helvetica Neue", Arial, sans-serif;
+      --radius: 6px;
+      color-scheme: light;
     }
     * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; background: var(--paper); color: var(--ink);
-      font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    body { display: flex; flex-direction: column; }
+    html, body { height: 100%; margin: 0; }
+    body { display: flex; flex-direction: column; background: var(--paper); color: var(--ink);
+      font: 15px/1.4 var(--font); }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    :focus-visible { outline: 3px solid var(--yellow); outline-offset: 1px; }
 
-    header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-      padding: 10px 16px; border-bottom: 1px solid var(--line); }
-    header h1 { font-size: 16px; margin: 0; font-weight: 650; }
-    .counts { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
-    .counts span { display: inline-flex; align-items: center; gap: 5px; }
-    .dot { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
-    .search { position: relative; margin-left: auto; flex: 0 1 260px; min-width: 180px; }
-    .search input { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
-    .results { position: absolute; z-index: 10; left: 0; right: 0; top: calc(100% + 4px); background: var(--paper);
-      border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.15); display: none;
-      max-height: 320px; overflow: auto; }
-    .results.show { display: block; }
-    .results button { display: flex; width: 100%; text-align: left; border: 0; border-radius: 0; gap: 8px;
-      align-items: center; min-height: 40px; border-bottom: 1px solid var(--wash); }
-    .results .none { padding: 10px; color: var(--muted); font-size: 13px; }
+    /* brand bar */
+    .brand { display: flex; align-items: center; gap: 14px; background: var(--black); color: var(--paper);
+      padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px; }
+    .brand img { height: 22px; width: auto; display: block; }
+    .brand .rule { width: 1px; align-self: stretch; background: var(--grey-80); }
+    .brand .name { display: flex; flex-direction: column; min-width: 0; }
+    .brand .eyebrow { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--yellow); font-weight: 700; }
+    .brand h1 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -0.01em; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; }
+    .brand .find { margin-left: auto; background: transparent; border: 1px solid var(--grey-60); color: var(--paper);
+      border-radius: var(--radius); padding: 7px 12px; min-height: 38px; cursor: pointer; }
+    .brand .find:hover { border-color: var(--paper); }
 
-    .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-      padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--wash); }
-    .tools .label { font-size: 13px; color: var(--muted); margin-right: 2px; }
-    button { font: inherit; border: 1px solid var(--line); background: var(--paper); color: var(--ink);
-      border-radius: 8px; padding: 8px 12px; cursor: pointer; min-height: 40px; }
-    button:hover { border-color: #b9bdc2; }
-    button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
-    button.danger { color: var(--rented); }
-    button.danger.armed { background: var(--rented); color: #fff; border-color: var(--rented); }
-    .num { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
-    .num input { width: 62px; font: inherit; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; }
-    #customDims { display: none; }
-    #customDims.show { display: inline-flex; }
+    /* status chips: filter and legend in one */
+    .chips { display: flex; gap: 8px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--grey-20);
+      overflow-x: auto; scrollbar-width: none; background: var(--paper); }
+    .chips::-webkit-scrollbar { display: none; }
+    .chip { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; border: 1px solid var(--grey-20);
+      background: var(--paper); border-radius: 99px; padding: 5px 12px 5px 9px; min-height: 34px; cursor: pointer;
+      font-size: 13px; font-weight: 500; }
+    .chip .sw { width: 12px; height: 12px; border-radius: 3px; }
+    .chip .n { font-variant-numeric: tabular-nums; color: var(--grey-60); font-weight: 400; }
+    .chip.off { opacity: .45; }
+    .chip.off .sw { background: transparent !important; outline: 2px solid var(--grey-40); outline-offset: -2px; }
+    .fees { margin-left: auto; white-space: nowrap; font-size: 13px; color: var(--grey-60); font-variant-numeric: tabular-nums; }
+    .fees b { color: var(--ink); font-weight: 700; }
 
     main { flex: 1; position: relative; min-height: 0; }
     arcgis-map { position: absolute; inset: 0; }
-    .hint { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 2;
-      background: rgba(29, 31, 33, .88); color: #fff; padding: 7px 12px; border-radius: 8px;
-      font-size: 13px; pointer-events: none; white-space: nowrap; max-width: calc(100% - 32px);
-      overflow: hidden; text-overflow: ellipsis; }
 
-    .panel { position: absolute; z-index: 3; right: 12px; top: 12px; width: 320px; max-height: calc(100% - 24px);
-      overflow: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, .18); padding: 14px; display: none; }
-    .panel.show { display: block; }
-    .panel h2 { font-size: 15px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-    .panel h2 button { min-height: 32px; padding: 4px 10px; }
-    .chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; color: #fff; }
-    dl.info { display: grid; grid-template-columns: 90px 1fr; gap: 6px 10px; margin: 0 0 12px; font-size: 14px; }
-    dl.info dt { color: var(--muted); }
+    /* action bar over the map */
+    .actions { position: absolute; z-index: 4; left: 50%; transform: translateX(-50%);
+      bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 8px; align-items: center;
+      background: var(--paper); border-radius: 10px; padding: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.25);
+      max-width: calc(100% - 32px); }
+    .btn { border: 1px solid var(--grey-20); background: var(--paper); border-radius: var(--radius);
+      padding: 9px 14px; min-height: 42px; cursor: pointer; font-weight: 500; white-space: nowrap; }
+    .btn:hover { border-color: var(--grey-40); }
+    .btn:disabled { opacity: .4; cursor: default; }
+    .btn.primary { background: var(--yellow); border-color: var(--yellow); color: var(--black); font-weight: 700; }
+    .btn.dark { background: var(--black); border-color: var(--black); color: var(--paper); }
+    .btn.danger { color: var(--rented); }
+    .btn.danger.armed { background: var(--rented); border-color: var(--rented); color: var(--paper); }
+
+    /* the bar shown while placing or adjusting a tent */
+    .workbar { position: absolute; z-index: 5; left: 50%; transform: translateX(-50%);
+      bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: min(560px, calc(100% - 32px));
+      background: var(--yellow); color: var(--black); border-radius: 10px; padding: 10px 10px 10px 14px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.3); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .workbar .what { flex: 1 1 200px; min-width: 0; }
+    .workbar .what b { display: block; font-size: 14px; }
+    .workbar .what span { font-size: 13px; }
+    .workbar .btn { border-color: var(--black); }
+
+    /* size menu */
+    .menu { position: absolute; z-index: 6; left: 50%; transform: translateX(-50%);
+      bottom: calc(80px + env(safe-area-inset-bottom, 0px)); background: var(--paper); border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.3); padding: 12px; width: min(340px, calc(100% - 32px)); display: grid; gap: 8px; }
+    .menu h3 { margin: 0 0 2px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--grey-60); }
+    .menu .size { display: flex; justify-content: space-between; align-items: center; text-align: left; }
+    .menu .size small { color: var(--grey-60); font-weight: 400; }
+    .menu .custom { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+    .menu .custom input { width: 64px; padding: 8px; border: 1px solid var(--grey-20); border-radius: var(--radius); }
+
+    .hint { position: absolute; z-index: 3; left: 50%; top: 12px; transform: translateX(-50%);
+      background: rgba(0,0,0,.82); color: var(--paper); padding: 7px 12px; border-radius: var(--radius); font-size: 13px;
+      pointer-events: none; max-width: calc(100% - 140px); text-align: center; }
+    .hint:empty { display: none; }
+
+    /* side sheet */
+    .sheet { position: absolute; z-index: 7; right: 12px; top: 12px; bottom: 12px; width: 340px; display: flex;
+      flex-direction: column; background: var(--paper); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      overflow: hidden; }
+    .sheet header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--grey-20); }
+    .sheet header h2 { margin: 0; font-size: 16px; font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sheet .x { border: 0; background: transparent; font-size: 22px; line-height: 1; padding: 4px 8px; cursor: pointer; color: var(--grey-60); }
+    .sheet .body { padding: 14px; overflow: auto; flex: 1; min-height: 0; display: grid; gap: 12px; align-content: start; }
+    .sheet .foot { padding: 12px 14px; border-top: 1px solid var(--grey-20); display: flex; gap: 8px; flex-wrap: wrap; }
+    .sheet .foot .btn { flex: 1; }
+    .status-pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 99px; color: var(--paper); }
+    dl.info { display: grid; grid-template-columns: 84px 1fr; gap: 8px 12px; margin: 0; font-size: 14px; }
+    dl.info dt { color: var(--grey-60); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; padding-top: 2px; }
     dl.info dd { margin: 0; overflow-wrap: anywhere; }
-    .tip { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
-    .field { margin-bottom: 10px; }
-    .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-    .field input, .field select, .field textarea { width: 100%; font: inherit; padding: 8px 10px;
-      border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }
-    .field textarea { min-height: 56px; resize: vertical; }
-    .dims { display: none; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .dims.show { display: grid; }
-    .status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-    .status button { padding: 8px 4px; font-size: 13px; }
-    .status button.on[data-s="Open"] { background: var(--open); border-color: var(--open); }
-    .status button.on[data-s="Held"] { background: var(--held); border-color: var(--held); color: var(--ink); }
-    .status button.on[data-s="Rented"] { background: var(--rented); border-color: var(--rented); }
-    .status button.on[data-s="Blocked"] { background: var(--blocked); border-color: var(--blocked); }
-    .row { display: flex; gap: 6px; flex-wrap: wrap; }
-    .row button { flex: 1; }
-    .msg { font-size: 13px; color: var(--muted); min-height: 18px; margin-top: 6px; }
+    .field { display: grid; gap: 5px; }
+    .field label, .label { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--grey-60); font-weight: 500; }
+    .field input, .field select, .field textarea { width: 100%; padding: 9px 10px; border: 1px solid var(--grey-20);
+      border-radius: var(--radius); background: var(--paper); }
+    .field textarea { min-height: 64px; resize: vertical; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .seg button { border: 1px solid var(--grey-20); background: var(--paper); border-radius: var(--radius); padding: 8px 2px;
+      min-height: 40px; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .seg button.on { color: var(--paper); }
+    .msg { font-size: 13px; color: var(--grey-60); min-height: 18px; }
     .msg.err { color: var(--rented); }
+    .search-box { width: 100%; padding: 10px 12px; border: 1px solid var(--grey-40); border-radius: var(--radius); }
+    .list { display: grid; }
+    .row { display: grid; grid-template-columns: 12px 1fr auto; gap: 4px 10px; align-items: center; text-align: left;
+      border: 0; border-bottom: 1px solid var(--wash); background: transparent; padding: 10px 2px; cursor: pointer; }
+    .row:hover { background: var(--wash); }
+    .row .sw { width: 12px; height: 12px; border-radius: 3px; }
+    .row .t { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .r { font-size: 13px; color: var(--grey-60); font-variant-numeric: tabular-nums; }
+    .row .s { grid-column: 2 / 4; font-size: 13px; color: var(--grey-60); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .empty { color: var(--grey-60); font-size: 14px; padding: 8px 0; }
+
+    .toast { position: absolute; z-index: 8; left: 50%; transform: translateX(-50%);
+      bottom: calc(84px + env(safe-area-inset-bottom, 0px)); background: var(--black); color: var(--paper);
+      border-radius: var(--radius); padding: 8px 8px 8px 14px; display: flex; gap: 12px; align-items: center;
+      box-shadow: 0 6px 20px rgba(0,0,0,.3); max-width: calc(100% - 32px); font-size: 14px; }
+    .toast button { background: transparent; color: var(--yellow); border: 0; font-weight: 700; cursor: pointer; padding: 6px 8px; }
+
+    .blocker { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; background: var(--paper);
+      padding: 24px; text-align: center; color: var(--grey-60); }
     [hidden] { display: none !important; }
 
-    .blocker { position: absolute; inset: 0; z-index: 5; display: none; place-items: center;
-      background: var(--paper); padding: 24px; text-align: center; color: var(--muted); }
-    .blocker.show { display: grid; }
-
     @media (max-width: 640px) {
-      .panel { left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 62%; }
-      header h1 { font-size: 15px; }
-      .search { flex-basis: 100%; margin-left: 0; }
+      .brand { gap: 10px; }
+      .brand img { height: 18px; }
+      .brand .rule, .brand .eyebrow { display: none; }
+      .brand h1 { font-size: 14px; }
+      .sheet { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 58%; border-radius: 14px 14px 0 0;
+        padding-bottom: env(safe-area-inset-bottom, 0px); }
+      arcgis-zoom { display: none; }
+      .fees { margin-left: 4px; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .sheet, .workbar, .menu, .toast { animation: rise .16s ease-out; }
+      @keyframes rise { from { opacity: 0; translate: 0 8px; } to { opacity: 1; translate: 0 0; } }
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Girard Park - Festival Planning</h1>
-    <div class="counts" id="counts"></div>
-    <div class="search">
-      <input id="search" type="search" placeholder="Find a spot number or renter" autocomplete="off" />
-      <div class="results" id="results"></div>
-    </div>
-  </header>
-
-  <div class="tools">
-    <span class="label">Place a tent:</span>
-    <button data-size="10 x 10 ft">10 x 10</button>
-    <button data-size="20 x 20 ft">20 x 20</button>
-    <button data-size="Company branded">Company branded</button>
-    <button data-size="Custom">Custom</button>
-    <span class="num" id="customDims"><input id="cw" type="number" min="1" step="1" value="10" /> x
-      <input id="cd" type="number" min="1" step="1" value="20" /> ft</span>
-    <button id="browse" hidden>Cancel</button>
+  <div class="brand">
+    <img src="logo.png" alt="Company logo" width="480" height="104" />
+    <span class="rule"></span>
+    <div class="name"><span class="eyebrow">Girard Park</span><h1>Festival Planning</h1></div>
+    <button class="find" id="openList" aria-label="Find a spot">Find a spot</button>
   </div>
 
+  <div class="chips" id="chips"></div>
+
   <main>
-    <arcgis-map popup-disabled></arcgis-map>
+    <arcgis-map popup-disabled>
+      <arcgis-zoom slot="top-left"></arcgis-zoom>
+      <arcgis-home slot="top-left"></arcgis-home>
+      <arcgis-locate slot="top-left"></arcgis-locate>
+    </arcgis-map>
     <div class="hint" id="hint"></div>
 
-    <div class="panel" id="panel">
-      <!-- read-only view -->
-      <div id="viewPane">
-        <h2><span id="vTitle">Spot</span><button id="vClose">Close</button></h2>
+    <div class="actions" id="actions">
+      <button class="btn primary" id="addBtn" aria-haspopup="true">+ Add tent</button>
+      <button class="btn" id="listBtn">Spot list</button>
+      <button class="btn" id="undoBtn" disabled>Undo</button>
+    </div>
+
+    <div class="menu" id="menu" hidden>
+      <h3>Tent size</h3>
+      <button class="btn size" data-size="10 x 10 ft">10 x 10 ft <small>$100</small></button>
+      <button class="btn size" data-size="20 x 20 ft">20 x 20 ft <small>$150</small></button>
+      <button class="btn size" data-size="Company branded">Company branded <small>up to 20 x 20, $500</small></button>
+      <div class="custom">
+        <span>Custom</span>
+        <input id="cw" type="number" min="1" step="1" value="10" aria-label="Custom width in feet" /> x
+        <input id="cd" type="number" min="1" step="1" value="20" aria-label="Custom depth in feet" /> ft
+        <button class="btn" id="customGo">Add</button>
+      </div>
+    </div>
+
+    <div class="workbar" id="workbar" hidden>
+      <div class="what"><b id="wTitle"></b><span id="wText"></span></div>
+      <button class="btn dark" id="wOk"></button>
+      <button class="btn" id="wCancel">Cancel</button>
+    </div>
+
+    <div class="toast" id="toast" hidden><span id="toastText"></span><button id="toastUndo">Undo</button></div>
+
+    <aside class="sheet" id="sheet" hidden>
+      <header><h2 id="sTitle"></h2><button class="x" id="sClose" aria-label="Close">&times;</button></header>
+
+      <!-- a tent, read only -->
+      <div class="body" id="viewPane" hidden>
+        <div><span class="status-pill" id="vStatus"></span></div>
         <dl class="info">
-          <dt>Status</dt><dd id="vStatus"></dd>
           <dt>Size</dt><dd id="vSize"></dd>
           <dt>Renter</dt><dd id="vRenter"></dd>
           <dt>Fee</dt><dd id="vFee"></dd>
           <dt>Year</dt><dd id="vYear"></dd>
           <dt>Notes</dt><dd id="vNotes"></dd>
         </dl>
-        <p class="tip">Drag the tent to move it. Drag the ring in its middle to turn it.</p>
-        <div class="row"><button id="vEdit" class="on">Edit</button><button id="vAgain" hidden>Place another like this</button></div>
+        <div class="msg" id="vMsg"></div>
       </div>
-      <!-- a new tent, not saved until Place it -->
-      <div id="newPane" hidden>
-        <h2><span>New tent</span></h2>
-        <dl class="info"><dt>Size</dt><dd id="nSize"></dd><dt>Turn</dt><dd id="nTurn"></dd></dl>
-        <p class="tip">Tap elsewhere to put it there, drag it to move it, or drag the ring to turn it. Nothing is saved until you press Place it.</p>
-        <div class="row"><button id="nPlace" class="on">Place it</button><button id="nCancel">Cancel</button></div>
+      <div class="foot" id="viewFoot" hidden>
+        <button class="btn primary" id="vEdit">Edit details</button>
+        <button class="btn" id="vMove">Move or turn</button>
       </div>
-      <!-- edit form -->
-      <div id="editPane" hidden>
-        <h2><span id="eTitle">Edit spot</span><button id="eCancel">Cancel</button></h2>
+
+      <!-- a tent, editing -->
+      <div class="body" id="editPane" hidden>
         <div class="field"><label for="fSpot">Spot number</label><input id="fSpot" maxlength="20" /></div>
         <div class="field"><label for="fSize">Tent size</label><select id="fSize"></select></div>
-        <div class="field dims" id="fDims">
-          <div><label for="fW">Width (ft)</label><input id="fW" type="number" min="1" step="1" /></div>
-          <div><label for="fD">Depth (ft)</label><input id="fD" type="number" min="1" step="1" /></div>
+        <div class="two" id="fDims" hidden>
+          <div class="field"><label for="fW">Width (ft)</label><input id="fW" type="number" min="1" step="1" /></div>
+          <div class="field"><label for="fD">Depth (ft)</label><input id="fD" type="number" min="1" step="1" /></div>
         </div>
-        <div class="field"><label>Status</label><div class="status" id="fStatus"></div></div>
+        <div class="field"><span class="label">Status</span><div class="seg" id="fStatus"></div></div>
         <div class="field"><label for="fRenter">Renter</label><input id="fRenter" maxlength="120" /></div>
         <div class="field"><label for="fFee">Fee ($)</label><input id="fFee" type="number" min="0" step="1" /></div>
         <div class="field"><label for="fNotes">Notes</label><textarea id="fNotes" maxlength="500"></textarea></div>
-        <div class="row"><button id="save" class="on">Save</button><button id="del" class="danger">Delete</button></div>
+        <div class="msg" id="eMsg"></div>
       </div>
-      <div class="msg" id="msg"></div>
-    </div>
+      <div class="foot" id="editFoot" hidden>
+        <button class="btn primary" id="eSave">Save</button>
+        <button class="btn" id="eCancel">Cancel</button>
+        <button class="btn danger" id="eDel">Delete</button>
+      </div>
 
-    <div class="blocker" id="blocker"></div>
+      <!-- the spot list -->
+      <div class="body" id="listPane" hidden>
+        <input class="search-box" id="search" type="search" placeholder="Spot number or renter" autocomplete="off" />
+        <div class="list" id="list"></div>
+      </div>
+      <div class="foot" id="listFoot" hidden>
+        <button class="btn" id="csvBtn">Download CSV</button>
+      </div>
+    </aside>
+
+    <div class="blocker" id="blocker">Loading the map…</div>
   </main>
 
   <script type="module">
@@ -181,41 +283,42 @@
       { value: "Custom", w: null, d: null, fee: null },
     ];
     const STATUSES = [
-      { value: "Open", color: "#2E9E5B" }, { value: "Held", color: "#F2B33D" },
-      { value: "Rented", color: "#D9483B" }, { value: "Blocked", color: "#9AA0A6" },
+      { value: "Open", color: "#2E9E5B" }, { value: "Held", color: "#2F6FD6" },
+      { value: "Rented", color: "#D9483B" }, { value: "Blocked", color: "#8A8F98" },
     ];
     const YEAR = 2027;
+    const YELLOW = [253, 208, 35];
     // ----------------------------------------------------------------------------------------
 
     const $ = (id) => document.getElementById(id);
     const blocker = $("blocker");
+    const stop = (text) => { blocker.textContent = text; blocker.hidden = false; };
     if (!window.esriConfig || !esriConfig.apiKey || esriConfig.apiKey.startsWith("PASTE")) {
-      blocker.textContent = "This page has no key yet. Paste the ArcGIS key into index.html where it is marked.";
-      blocker.classList.add("show");
+      stop("This page has no key yet. Paste the ArcGIS key into index.html where it is marked.");
       throw new Error("no key");
     }
 
-    const [Map, Basemap, TileLayer, FeatureLayer, Graphic, Polygon, Point] = await $arcgis.import([
+    const [Map, Basemap, TileLayer, FeatureLayer, Graphic, Polygon, Point, reactiveUtils] = await $arcgis.import([
       "@arcgis/core/Map.js", "@arcgis/core/Basemap.js", "@arcgis/core/layers/TileLayer.js",
       "@arcgis/core/layers/FeatureLayer.js", "@arcgis/core/Graphic.js", "@arcgis/core/geometry/Polygon.js",
-      "@arcgis/core/geometry/Point.js",
+      "@arcgis/core/geometry/Point.js", "@arcgis/core/core/reactiveUtils.js",
     ]);
 
-    const hex = (h, a) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16), a];
+    const rgba = (h, a) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16), a];
     const colorOf = (s) => (STATUSES.find((x) => x.value === s) || STATUSES[0]).color;
     const ortho = new TileLayer({ url: ORTHO_URL, title: "Ortho" });
     const spots = new FeatureLayer({
-      url: SPOTS_URL, title: "Tent spots", outFields: ["*"], popupEnabled: false,
+      url: SPOTS_URL, title: "Tent spots", outFields: ["*"], popupEnabled: false, refreshInterval: 1,
       renderer: {
         type: "unique-value", field: "status",
         uniqueValueInfos: STATUSES.map((s) => ({
           value: s.value, label: s.value,
-          symbol: { type: "simple-fill", color: hex(s.color, 0.43), outline: { color: hex(s.color, 1), width: 2 } },
+          symbol: { type: "simple-fill", color: rgba(s.color, 0.45), outline: { color: rgba(s.color, 1), width: 2 } },
         })),
       },
       labelingInfo: [{
-        labelExpressionInfo: { expression: "$feature.spot_no" }, minScale: 2500,
-        symbol: { type: "text", color: "white", haloColor: [30, 30, 30, 0.8], haloSize: 1.2,
+        labelExpressionInfo: { expression: "$feature.spot_no" }, minScale: 5000,
+        symbol: { type: "text", color: "white", haloColor: [0, 0, 0, 0.85], haloSize: 1.2,
           font: { family: "Arial", size: 10, weight: "bold" } },
       }],
     });
@@ -229,29 +332,32 @@
     try {
       await Promise.all([ortho.load(), spots.load()]);
     } catch (e) {
-      blocker.textContent = "The map could not load its layers. The key may have expired or lost access: " + (e.message || e);
-      blocker.classList.add("show");
+      stop("The map could not load its layers. The key may have expired or lost access: " + (e.message || e));
       throw e;
     }
     // open on the park and keep the view near it: the ortho is the flown park
     const park = ortho.fullExtent;
     await viewElement.goTo(park);
     viewElement.constraints = { geometry: park.clone().expand(1.5), minScale: 12000, rotationEnabled: false };
+    try { document.querySelector("arcgis-home").viewpoint = viewElement.viewpoint.clone(); } catch { /* home falls back to its own default */ }
     const layerView = await viewElement.whenLayerView(spots);
+    blocker.hidden = true;
+    const OID = spots.objectIdField;
     const toMap = (pt) => (viewElement.toMap ? viewElement.toMap(pt) : viewElement.view.toMap(pt));
+    const toScreen = (pt) => (viewElement.toScreen ? viewElement.toScreen(pt) : viewElement.view.toScreen(pt));
+    const resolution = () => viewElement.resolution ?? viewElement.view?.resolution ?? 0.1;
 
     // ---- geometry: a true-size rectangle in Web Mercator ---------------------------------
     // w runs across the tent, d along it; deg turns it clockwise on screen
     const R = 6378137, FT = 0.3048;
-    const mercScale = (y) => 1 / Math.cos(Math.atan(Math.sinh(y / R)));  // map units per ground metre
+    const mercScale = (y) => 1 / Math.cos(Math.atan(Math.sinh(y / R)));
     function rect(cx, cy, w, d, deg) {
       const k = FT * mercScale(cy) / 2, hw = w * k, hd = d * k;
       const t = (deg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
-      // clockwise ring, as ArcGIS wants for an outer ring
       const ring = [[-hw, -hd], [-hw, hd], [hw, hd], [hw, -hd], [-hw, -hd]].map(([x, y]) => [cx + x * c + y * s, cy - x * s + y * c]);
       return new Polygon({ rings: [ring], spatialReference: { wkid: 102100 } });
     }
-    function describe(poly) {  // centre, turn and size of a rectangle made by rect()
+    function describe(poly) {
       const r = poly.rings[0];
       const cx = (r[0][0] + r[1][0] + r[2][0] + r[3][0]) / 4, cy = (r[0][1] + r[1][1] + r[2][1] + r[3][1]) / 4;
       const deg = (Math.atan2(r[1][0] - r[0][0], r[1][1] - r[0][1]) * 180) / Math.PI;
@@ -260,245 +366,334 @@
       const w = Math.hypot(r[2][0] - r[1][0], r[2][1] - r[1][1]) / unit;
       return { cx, cy, deg, w: Math.round(w * 10) / 10, d: Math.round(d * 10) / 10 };
     }
-    const sizeOf = (v) => SIZES.find((s) => s.value === v) || SIZES[0];
-    const dimsText = (a, g) => { const x = describe(g); return a.tent_size === "Custom" || !a.tent_size
-      ? `Custom, ${x.w} x ${x.d} ft` : `${a.tent_size}`; };
-
-    // ---- state ----------------------------------------------------------------------------
-    let mode = "browse";       // "browse" or "place"
-    let placeSize = null;
-    let current = null;        // { oid, geometry, attrs }: a saved tent that is selected
-    let draft = null;          // { geometry, size }: a new tent shown but not saved
-    let lastPlaced = null;     // { size, w, d, deg } for "Place another like this"
-    const hint = $("hint"), panel = $("panel"), msg = $("msg");
-    const say = (t, err = false) => { msg.textContent = t; msg.className = "msg" + (err ? " err" : ""); };
-    const HINT_BROWSE = "Tap a tent to see it, or pick a size to place one.";
-    // placing is one tent at a time: a tap only shows a draft, Place it saves it, then the page is back to browsing
-    function setMode(m, size = null) {
-      mode = m; placeSize = size;
-      document.querySelectorAll(".tools [data-size]").forEach((b) => b.classList.toggle("on", m === "place" && b.dataset.size === size));
-      $("browse").hidden = m !== "place";
-      $("customDims").classList.toggle("show", m === "place" && size === "Custom");
-      if (m === "place") { if (current) closePanel(); }
-      else if (draft) { draft = null; drawSelection(null); panel.classList.remove("show"); }
-      hint.textContent = m === "place" ? `Tap the ortho where the ${size === "Custom" ? "custom" : size} tent goes.` : HINT_BROWSE;
+    function insideTent(p, g) {
+      const x = describe(g), t = (x.deg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+      const dx = p.x - x.cx, dy = p.y - x.cy, k = FT * mercScale(x.cy) / 2;
+      const u = dx * c - dy * s, v = dx * s + dy * c;
+      return Math.abs(u) <= x.w * k && Math.abs(v) <= x.d * k;
     }
-    document.querySelectorAll(".tools [data-size]").forEach((b) => b.addEventListener("click", () => setMode("place", b.dataset.size)));
-    $("browse").addEventListener("click", () => setMode("browse"));
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && mode === "place") setMode("browse"); });
-    hint.textContent = HINT_BROWSE;
-    let lastTurn = 0;          // a new tent starts at the turn of the last one placed or turned, so rows line up
+    const sizeOf = (v) => SIZES.find((s) => s.value === v) || SIZES[SIZES.length - 1];
+    const sizeText = (a, g) => { const x = describe(g); return a.tent_size && a.tent_size !== "Custom" ? a.tent_size : `Custom, ${x.w} x ${x.d} ft`; };
+    const money = (n) => (n == null ? "-" : `$${Number(n).toLocaleString()}`);
+    const sr = { wkid: 102100 };
 
-    // ---- the selected tent: outline, ring and knob drawn over the layer ------------------
-    const selOutline = new Graphic({ symbol: { type: "simple-fill", color: [0, 0, 0, 0],
-      outline: { color: [255, 255, 255, 1], width: 2.5, style: "dash" } } });
-    const ringG = new Graphic({ symbol: { type: "simple-fill", color: [255, 255, 255, 0.22],
-      outline: { color: [255, 255, 255, 1], width: 3 } } });
-    const knobG = new Graphic({ symbol: { type: "simple-marker", style: "circle", size: 12, color: [255, 255, 255, 1],
-      outline: { color: [29, 31, 33, 1], width: 2 } } });
-    viewElement.graphics.addMany([selOutline, ringG, knobG]);
-    const ringRadius = (g) => { const x = describe(g); return Math.max(2, Math.min(x.w, x.d) * 0.3) * FT * mercScale(x.cy); };
-    function drawSelection(geometry, isDraft = false) {
-      if (!geometry) { selOutline.geometry = ringG.geometry = knobG.geometry = null; return; }
-      selOutline.symbol = { type: "simple-fill", color: isDraft ? [255, 255, 255, 0.35] : [0, 0, 0, 0],
-        outline: { color: [255, 255, 255, 1], width: 2.5, style: "dash" } };
-      const x = describe(geometry), r = ringRadius(geometry), sr = { wkid: 102100 };
-      const pts = [];
-      for (let i = 0; i <= 48; i++) { const a = (i / 48) * 2 * Math.PI; pts.push([x.cx + r * Math.sin(a), x.cy + r * Math.cos(a)]); }
-      selOutline.geometry = geometry;
-      ringG.geometry = new Polygon({ rings: [pts], spatialReference: sr });
-      const t = (x.deg * Math.PI) / 180;  // knob marks which way the tent faces
+    // ---- the tent being worked on: outline, turning ring and knob ------------------------
+    const RING_PX = 22;
+    const outlineG = new Graphic();
+    const ringG = new Graphic({ symbol: { type: "simple-marker", style: "circle", size: RING_PX * 2,
+      color: [255, 255, 255, 0.18], outline: { color: [255, 255, 255, 1], width: 3 } } });
+    const knobG = new Graphic({ symbol: { type: "simple-marker", style: "circle", size: 14,
+      color: [...YELLOW, 1], outline: { color: [0, 0, 0, 1], width: 2 } } });
+    viewElement.graphics.addMany([outlineG, ringG, knobG]);
+    function draw(geometry, { work = false } = {}) {
+      if (!geometry) { outlineG.geometry = ringG.geometry = knobG.geometry = null; return; }
+      outlineG.geometry = geometry;
+      outlineG.symbol = { type: "simple-fill", color: work ? [...YELLOW, 0.35] : [0, 0, 0, 0],
+        outline: { color: [...YELLOW, 1], width: 3 } };
+      if (!work) { ringG.geometry = knobG.geometry = null; return; }
+      const x = describe(geometry), r = RING_PX * resolution(), t = (x.deg * Math.PI) / 180;
+      ringG.geometry = new Point({ x: x.cx, y: x.cy, spatialReference: sr });
       knobG.geometry = new Point({ x: x.cx + r * Math.sin(t), y: x.cy + r * Math.cos(t), spatialReference: sr });
     }
-    function hideOriginal(oid) { layerView.filter = oid == null ? null : { where: `${spots.objectIdField} <> ${oid}` }; }
+    reactiveUtils.watch(() => viewElement.scale, () => { if (work) draw(work.geometry, { work: true }); });
 
-    // ---- panel: read-only view and edit form ---------------------------------------------
+    // ---- state ----------------------------------------------------------------------------
+    let current = null;   // the selected saved tent: { oid, geometry, attrs }
+    let work = null;      // a tent being placed or adjusted: { kind: "new" | "adjust", geometry, size, oid?, armed? }
+    let lastTurn = 0;     // a new tent starts at the turn of the last one placed or turned, so rows line up
+    const hint = $("hint");
+    const setHint = (t) => { hint.textContent = t || ""; };
+
+    // ---- the sheet: one place for a tent, its edit form and the spot list ----------------
+    const sheet = $("sheet");
+    const panes = ["viewPane", "viewFoot", "editPane", "editFoot", "listPane", "listFoot"];
+    function openSheet(which, title) {
+      panes.forEach((p) => { $(p).hidden = !p.startsWith(which); });
+      $("sTitle").textContent = title;
+      sheet.hidden = false;
+      padForSheet();
+    }
+    function closeSheet() {
+      sheet.hidden = true; current = null; if (!work) draw(null); padForSheet();
+    }
+    function padForSheet() {
+      const phone = innerWidth <= 640;
+      const none = { top: 0, right: 0, bottom: 0, left: 0 };
+      viewElement.padding = sheet.hidden ? none : phone ? { ...none, bottom: sheet.offsetHeight } : { ...none, right: 352 };
+    }
+    addEventListener("resize", padForSheet);
+    $("sClose").addEventListener("click", closeSheet);
+
+    async function fetchTent(oid) {
+      const fs = await spots.queryFeatures({ objectIds: [oid], outFields: ["*"], returnGeometry: true, outSpatialReference: sr });
+      return fs.features[0];
+    }
+    async function select(oid, zoom = false) {
+      const f = await fetchTent(oid);
+      if (!f) return;
+      current = { oid, geometry: f.geometry, attrs: f.attributes };
+      draw(f.geometry);
+      showTent();
+      const target = zoom ? f.geometry.extent.clone().expand(5) : f.geometry;
+      viewElement.goTo(target, { animate: true }).catch(() => {});
+    }
+    function showTent(message = "") {
+      const a = current.attrs;
+      const pill = $("vStatus");
+      pill.textContent = a.status || "Open"; pill.style.background = colorOf(a.status);
+      $("vSize").textContent = sizeText(a, current.geometry);
+      $("vRenter").textContent = a.renter || "-";
+      $("vFee").textContent = money(a.fee);
+      $("vYear").textContent = a.year ?? "-";
+      $("vNotes").textContent = a.notes || "-";
+      $("vMsg").textContent = message;
+      openSheet("view", a.spot_no ? `Spot ${a.spot_no}` : "Tent");
+    }
+    $("vEdit").addEventListener("click", () => showEdit());
+    $("vMove").addEventListener("click", () => startAdjust());
+
+    // edit form
     SIZES.forEach((s) => $("fSize").add(new Option(s.value, s.value)));
     STATUSES.forEach((s) => {
       const b = document.createElement("button");
-      b.textContent = s.value; b.dataset.s = s.value;
+      b.type = "button"; b.textContent = s.value; b.dataset.s = s.value;
       b.addEventListener("click", () => markStatus(s.value));
       $("fStatus").appendChild(b);
     });
-    const markStatus = (v) => document.querySelectorAll("#fStatus button").forEach((b) => b.classList.toggle("on", b.dataset.s === v));
+    function markStatus(v) {
+      document.querySelectorAll("#fStatus button").forEach((b) => {
+        const on = b.dataset.s === v; b.classList.toggle("on", on);
+        b.style.background = on ? colorOf(v) : ""; b.style.borderColor = on ? colorOf(v) : "";
+      });
+    }
     const chosenStatus = () => document.querySelector("#fStatus button.on")?.dataset.s || "Open";
     function syncDims() {
       const s = sizeOf($("fSize").value);
-      $("fDims").classList.toggle("show", s.value === "Custom");
+      $("fDims").hidden = s.value !== "Custom";
       if (s.value !== "Custom") { $("fW").value = s.w; $("fD").value = s.d; }
     }
     $("fSize").addEventListener("change", () => { const s = sizeOf($("fSize").value); syncDims(); if (s.fee != null) $("fFee").value = s.fee; });
-
-    function showView() {
-      const a = current.attrs;
-      $("vTitle").textContent = a.spot_no ? `Spot ${a.spot_no}` : "Tent";
-      const chip = document.createElement("span"); chip.className = "chip";
-      chip.style.background = colorOf(a.status); chip.style.color = a.status === "Held" ? "#1d1f21" : "#fff";
-      chip.textContent = a.status || "Open";
-      $("vStatus").replaceChildren(chip);
-      $("vSize").textContent = dimsText(a, current.geometry);
-      $("vRenter").textContent = a.renter || "-";
-      $("vFee").textContent = a.fee == null ? "-" : `$${Number(a.fee).toLocaleString()}`;
-      $("vYear").textContent = a.year ?? "-";
-      $("vNotes").textContent = a.notes || "-";
-      $("viewPane").hidden = false; $("editPane").hidden = true; $("newPane").hidden = true;
-      panel.classList.add("show");
-    }
     function showEdit() {
       const a = current.attrs, x = describe(current.geometry);
-      $("eTitle").textContent = a.spot_no ? `Edit spot ${a.spot_no}` : "Edit tent";
       $("fSpot").value = a.spot_no || "";
       $("fSize").value = a.tent_size || "Custom";
-      $("fW").value = x.w; $("fD").value = x.d; syncDims();
-      if (a.tent_size === "Custom") { $("fW").value = x.w; $("fD").value = x.d; }
+      syncDims();
+      if ($("fSize").value === "Custom") { $("fW").value = x.w; $("fD").value = x.d; }
       markStatus(a.status || "Open");
       $("fRenter").value = a.renter || "";
       $("fFee").value = a.fee ?? "";
       $("fNotes").value = a.notes || "";
-      disarm();
-      $("viewPane").hidden = true; $("editPane").hidden = false; $("newPane").hidden = true;
-      panel.classList.add("show");
+      $("eMsg").textContent = ""; $("eMsg").className = "msg";
+      disarmDelete();
+      openSheet("edit", a.spot_no ? `Edit spot ${a.spot_no}` : "Edit tent");
     }
-    function closePanel() { panel.classList.remove("show"); current = null; drawSelection(null); say(""); $("vAgain").hidden = true; }
+    $("eCancel").addEventListener("click", () => showTent());
+    const eMsg = (t, err = false) => { $("eMsg").textContent = t; $("eMsg").className = "msg" + (err ? " err" : ""); };
 
-    // ---- the draft: a new tent shown on the map, saved only by Place it --------------------
-    function showDraft() {
-      const x = describe(draft.geometry);
-      $("nSize").textContent = draft.size === "Custom" ? `Custom, ${x.w} x ${x.d} ft` : draft.size;
-      $("nTurn").textContent = `${Math.round(x.deg)}°`;
-      $("viewPane").hidden = true; $("editPane").hidden = true; $("newPane").hidden = false;
-      drawSelection(draft.geometry, true);
-      say("");
-      panel.classList.add("show");
-    }
-    $("nCancel").addEventListener("click", () => setMode("browse"));
-    $("nPlace").addEventListener("click", async () => {
-      if (!draft) return;
-      const s = sizeOf(draft.size), x = describe(draft.geometry);
-      $("nPlace").disabled = true;
+    $("eSave").addEventListener("click", async () => {
+      if (!current) return;
+      const size = $("fSize").value, w = Number($("fW").value), d = Number($("fD").value);
+      if (size === "Custom" && !(w > 0 && d > 0)) { eMsg("Give a width and depth in feet.", true); return; }
+      const fields = { spot_no: $("fSpot").value.trim() || null, tent_size: size, status: chosenStatus(),
+        renter: $("fRenter").value.trim() || null, fee: $("fFee").value === "" ? null : Number($("fFee").value),
+        notes: $("fNotes").value.trim() || null };
+      if (fields.spot_no && await spotTaken(fields.spot_no, current.oid)) {
+        eMsg(`Spot ${fields.spot_no} is already used by another tent. Pick another number.`, true); return;
+      }
+      const x = describe(current.geometry);
+      const nw = size === "Custom" ? w : sizeOf(size).w, nd = size === "Custom" ? d : sizeOf(size).d;
+      const geometry = (Math.abs(nw - x.w) > 0.05 || Math.abs(nd - x.d) > 0.05) ? rect(x.cx, x.cy, nw, nd, x.deg) : null;
       try {
-        const attrs = { spot_no: await nextSpotNumber(), tent_size: s.value, status: "Open", fee: s.fee, year: YEAR };
-        const r = await spots.applyEdits({ addFeatures: [new Graphic({ geometry: draft.geometry, attributes: attrs })] });
-        const res = r.addFeatureResults[0];
-        if (res.error) throw new Error(res.error.message);
-        lastPlaced = { size: s.value, w: x.w, d: x.d, deg: x.deg };
-        lastTurn = x.deg;
-        draft = null; setMode("browse");
-        refreshCounts();
-        await select(res.objectId);
-        $("vAgain").hidden = false;
-        say(`Placed spot ${attrs.spot_no}.`);
-      } catch (e) { say("Not placed: " + (e.message || e), true); }
-      finally { $("nPlace").disabled = false; }
+        await updateTent(current, fields, geometry, `Saved spot ${fields.spot_no ?? ""}`.trim());
+        showTent("Saved.");
+      } catch (e) { eMsg("Not saved: " + (e.message || e), true); }
     });
-    $("vAgain").addEventListener("click", () => {
-      if (!lastPlaced) return;
-      if (lastPlaced.size === "Custom") { $("cw").value = lastPlaced.w; $("cd").value = lastPlaced.d; }
-      lastTurn = lastPlaced.deg;
-      setMode("place", lastPlaced.size);
-    });
-    $("vClose").addEventListener("click", closePanel);
-    $("vEdit").addEventListener("click", () => { say(""); showEdit(); });
-    $("eCancel").addEventListener("click", () => { say(""); showView(); });
 
-    async function select(oid, zoom = false) {
-      const fs = await spots.queryFeatures({ objectIds: [oid], outFields: ["*"], returnGeometry: true, outSpatialReference: { wkid: 102100 } });
-      const f = fs.features[0];
-      if (!f) return;
-      current = { oid, geometry: f.geometry, attrs: f.attributes };
-      drawSelection(f.geometry);
-      say("");
-      showView();
-      if (zoom) viewElement.goTo({ target: f.geometry.extent.clone().expand(6) });
+    let armedAt = 0;
+    function disarmDelete() { armedAt = 0; $("eDel").classList.remove("armed"); $("eDel").textContent = "Delete"; }
+    $("eDel").addEventListener("click", async () => {
+      if (!current) return;
+      if (Date.now() - armedAt > 4000) { armedAt = Date.now(); $("eDel").classList.add("armed"); $("eDel").textContent = "Tap again to delete"; return; }
+      try { await deleteTent(current); closeSheet(); }
+      catch (e) { disarmDelete(); eMsg("Not deleted: " + (e.message || e), true); }
+    });
+
+    // ---- edits, each one undoable ---------------------------------------------------------
+    const EDITABLE = ["spot_no", "tent_size", "status", "renter", "fee", "year", "notes"];
+    const undo = [];
+    const pick = (a) => Object.fromEntries(EDITABLE.map((k) => [k, a[k] ?? null]));
+    async function apply(edits) {
+      const r = await spots.applyEdits(edits);
+      const res = [...(r.addFeatureResults || []), ...(r.updateFeatureResults || []), ...(r.deleteFeatureResults || [])][0];
+      if (res?.error) throw new Error(res.error.message);
+      refreshCounts(); if (!$("listPane").hidden) renderList();
+      return res;
     }
+    function remember(entry, text) {
+      undo.push(entry); if (undo.length > 30) undo.shift();
+      $("undoBtn").disabled = false;
+      toast(text);
+    }
+    async function addTent(geometry, attrs) {
+      const res = await apply({ addFeatures: [new Graphic({ geometry, attributes: attrs })] });
+      remember({ kind: "add", oid: res.objectId }, `Placed spot ${attrs.spot_no}`);
+      return res.objectId;
+    }
+    async function updateTent(t, fields, geometry, text) {
+      const before = { attrs: pick(t.attrs), geometry: t.geometry };
+      await apply({ updateFeatures: [new Graphic({ attributes: { [OID]: t.oid, ...fields }, ...(geometry ? { geometry } : {}) })] });
+      Object.assign(t.attrs, fields); if (geometry) t.geometry = geometry;
+      if (current === t) draw(t.geometry);
+      remember({ kind: "update", oid: t.oid, before }, text);
+    }
+    async function deleteTent(t) {
+      await apply({ deleteFeatures: [{ objectId: t.oid }] });
+      remember({ kind: "delete", geometry: t.geometry, attrs: pick(t.attrs) }, `Deleted spot ${t.attrs.spot_no ?? ""}`.trim());
+    }
+    async function undoLast() {
+      const e = undo.pop();
+      $("undoBtn").disabled = undo.length === 0;
+      hideToast();
+      if (!e) return;
+      try {
+        if (e.kind === "add") { await apply({ deleteFeatures: [{ objectId: e.oid }] }); if (current?.oid === e.oid) closeSheet(); }
+        else if (e.kind === "update") {
+          await apply({ updateFeatures: [new Graphic({ attributes: { [OID]: e.oid, ...e.before.attrs }, geometry: e.before.geometry })] });
+          if (current?.oid === e.oid) { current.attrs = { ...current.attrs, ...e.before.attrs }; current.geometry = e.before.geometry; draw(current.geometry); showTent("Change undone."); }
+        } else if (e.kind === "delete") {
+          const res = await apply({ addFeatures: [new Graphic({ geometry: e.geometry, attributes: e.attrs })] });
+          await select(res.objectId);
+        }
+        setHint("Undone.");
+        setTimeout(() => setHint(""), 1800);
+      } catch (err) { setHint("Could not undo: " + (err.message || err)); }
+    }
+    $("undoBtn").addEventListener("click", undoLast);
+    $("toastUndo").addEventListener("click", undoLast);
+    let toastTimer = null;
+    function toast(text) {
+      $("toastText").textContent = text; $("toast").hidden = false;
+      clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, 6000);
+    }
+    function hideToast() { $("toast").hidden = true; }
 
+    // ---- checks before saving: overlaps and duplicate spot numbers -----------------------
+    async function overlapping(geometry, exceptOid) {
+      // shrink by half a foot so tents set edge to edge do not count as overlapping
+      const x = describe(geometry);
+      const probe = rect(x.cx, x.cy, Math.max(0.5, x.w - 0.5), Math.max(0.5, x.d - 0.5), x.deg);
+      const fs = await spots.queryFeatures({ geometry: probe, spatialRelationship: "intersects",
+        where: exceptOid == null ? "1=1" : `${OID} <> ${exceptOid}`, outFields: ["spot_no"], returnGeometry: false });
+      return fs.features.map((f) => f.attributes.spot_no ?? "?");
+    }
+    async function spotTaken(no, exceptOid) {
+      const fs = await spots.queryFeatures({ where: `spot_no = '${String(no).replace(/'/g, "''")}' AND ${OID} <> ${exceptOid ?? -1}`,
+        returnGeometry: false, outFields: [OID] });
+      return fs.features.length > 0;
+    }
     async function nextSpotNumber() {
       const fs = await spots.queryFeatures({ where: "1=1", outFields: ["spot_no"], returnGeometry: false });
       const nums = fs.features.map((f) => parseInt(f.attributes.spot_no, 10)).filter((n) => !isNaN(n));
       return String(nums.length ? Math.max(...nums) + 1 : 1);
     }
 
-    async function save(fields, geometry) {
-      const g = new Graphic({ attributes: { [spots.objectIdField]: current.oid, ...fields }, ...(geometry ? { geometry } : {}) });
-      const r = await spots.applyEdits({ updateFeatures: [g] });
-      const res = r.updateFeatureResults[0];
-      if (res.error) throw new Error(res.error.message);
-      Object.assign(current.attrs, fields);
-      if (geometry) { current.geometry = geometry; drawSelection(geometry); }
-      refreshCounts();
+    // ---- placing and adjusting: nothing is saved until the yellow bar's button -----------
+    const menu = $("menu");
+    $("addBtn").addEventListener("click", () => { menu.hidden = !menu.hidden; });
+    document.querySelectorAll(".menu .size").forEach((b) => b.addEventListener("click", () => startNew(b.dataset.size)));
+    $("customGo").addEventListener("click", () => startNew("Custom"));
+    document.addEventListener("click", (e) => { if (!menu.hidden && !e.target.closest("#menu, #addBtn")) menu.hidden = true; });
+
+    function startNew(size) {
+      const s = sizeOf(size);
+      const w = s.value === "Custom" ? Number($("cw").value) : s.w, d = s.value === "Custom" ? Number($("cd").value) : s.d;
+      if (!(w > 0 && d > 0)) { setHint("Give the custom tent a width and depth in feet."); return; }
+      menu.hidden = true;
+      closeSheet();
+      const c = viewElement.center ?? viewElement.extent.center;  // the new tent starts in the middle of the screen
+      work = { kind: "new", size: s.value, geometry: rect(c.x, c.y, w, d, lastTurn) };
+      showWork();
     }
-
-    $("save").addEventListener("click", async () => {
+    function startAdjust() {
       if (!current) return;
-      const fee = $("fFee").value === "" ? null : Number($("fFee").value);
-      const size = $("fSize").value;
-      const w = Number($("fW").value), d = Number($("fD").value);
-      if (size === "Custom" && !(w > 0 && d > 0)) { say("Give a width and depth in feet.", true); return; }
-      const fields = { spot_no: $("fSpot").value.trim() || null, tent_size: size, status: chosenStatus(),
-        renter: $("fRenter").value.trim() || null, fee, notes: $("fNotes").value.trim() || null };
-      const x = describe(current.geometry);
-      const nw = size === "Custom" ? w : sizeOf(size).w, nd = size === "Custom" ? d : sizeOf(size).d;
-      const geometry = (Math.abs(nw - x.w) > 0.05 || Math.abs(nd - x.d) > 0.05) ? rect(x.cx, x.cy, nw, nd, x.deg) : null;
-      try { await save(fields, geometry); showView(); say("Saved."); }
-      catch (e) { say("Not saved: " + (e.message || e), true); }
-    });
-
-    let armedAt = 0;
-    const disarm = () => { armedAt = 0; $("del").classList.remove("armed"); $("del").textContent = "Delete"; };
-    $("del").addEventListener("click", async () => {
-      if (!current) return;
-      if (Date.now() - armedAt > 4000) { armedAt = Date.now(); $("del").classList.add("armed"); $("del").textContent = "Tap again to delete"; return; }
+      work = { kind: "adjust", oid: current.oid, size: current.attrs.tent_size, geometry: current.geometry, from: current.geometry };
+      layerView.filter = { where: `${OID} <> ${current.oid}` };
+      sheet.hidden = true; padForSheet();
+      showWork();
+    }
+    function showWork(text) {
+      const x = describe(work.geometry);
+      const dims = work.size && work.size !== "Custom" ? work.size : `${x.w} x ${x.d} ft`;
+      $("wTitle").textContent = work.kind === "new" ? `New tent, ${dims}` : `Moving spot ${current?.attrs.spot_no ?? ""}`;
+      $("wText").textContent = text || "Drag it, tap the map to put it there, or drag the ring to turn it.";
+      $("wOk").textContent = work.armed ? (work.kind === "new" ? "Place anyway" : "Save anyway") : (work.kind === "new" ? "Place it" : "Done");
+      $("actions").hidden = true; $("workbar").hidden = false;
+      draw(work.geometry, { work: true });
+      setHint("");
+    }
+    function endWork() {
+      if (work?.kind === "adjust") layerView.filter = null;
+      work = null; $("workbar").hidden = true; $("actions").hidden = false;
+      draw(current ? current.geometry : null);
+    }
+    $("wCancel").addEventListener("click", () => { const k = work?.kind; endWork(); if (k === "adjust" && current) showTent(); });
+    $("wOk").addEventListener("click", async () => {
+      if (!work) return;
+      const btn = $("wOk"); btn.disabled = true;
       try {
-        const r = await spots.applyEdits({ deleteFeatures: [{ objectId: current.oid }] });
-        if (r.deleteFeatureResults[0].error) throw new Error(r.deleteFeatureResults[0].error.message);
-        closePanel(); refreshCounts();
-      } catch (e) { disarm(); say("Not deleted: " + (e.message || e), true); }
+        if (!work.armed) {
+          const hits = await overlapping(work.geometry, work.kind === "adjust" ? work.oid : null);
+          if (hits.length) { work.armed = true; showWork(`It overlaps spot ${hits.join(", ")}.`); return; }
+        }
+        const x = describe(work.geometry);
+        lastTurn = x.deg;
+        if (work.kind === "new") {
+          const s = sizeOf(work.size);
+          const attrs = { spot_no: await nextSpotNumber(), tent_size: s.value, status: "Open", fee: s.fee, year: YEAR };
+          const oid = await addTent(work.geometry, attrs);
+          endWork();
+          await select(oid);
+        } else {
+          const t = current;
+          await updateTent(t, {}, work.geometry, `Moved spot ${t.attrs.spot_no ?? ""}`.trim());
+          endWork();
+          showTent();
+        }
+      } catch (e) { showWork("Not saved: " + (e.message || e)); }
+      finally { btn.disabled = false; }
     });
 
-    // ---- taps: place, or select ----------------------------------------------------------
+    // taps: in the bar's modes a tap moves the tent there; otherwise it selects a tent
     viewElement.addEventListener("arcgisViewClick", async (event) => {
       const p = event.detail.mapPoint;
       if (!p) return;
-      if (mode === "place") {  // a tap shows or moves the draft; nothing is saved here
-        const s = sizeOf(placeSize);
-        const w = s.value === "Custom" ? Number($("cw").value) : s.w, d = s.value === "Custom" ? Number($("cd").value) : s.d;
-        if (!(w > 0 && d > 0)) { hint.textContent = "Give the custom tent a width and depth in feet."; return; }
-        const deg = draft ? describe(draft.geometry).deg : lastTurn;
-        draft = { geometry: rect(p.x, p.y, w, d, deg), size: s.value };
-        hint.textContent = "Check it, then press Place it.";
-        showDraft();
+      if (work) {
+        const x = describe(work.geometry);
+        work.geometry = rect(p.x, p.y, x.w, x.d, x.deg); work.armed = false;
+        showWork();
         return;
       }
       const hit = await viewElement.hitTest(event.detail, { include: [spots] });
       const g = hit.results.find((r) => r.graphic && r.graphic.layer === spots)?.graphic;
-      if (g) await select(g.attributes[spots.objectIdField]);
-      else if (current && !insideTent(p, current.geometry)) closePanel();
+      if (g) await select(g.attributes[OID]);
+      else if (!sheet.hidden && !$("viewPane").hidden) closeSheet();
     });
 
-    // ---- drag the selected tent to move it, drag its ring to turn it ---------------------
-    function insideTent(p, g) {
-      const x = describe(g), t = (x.deg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
-      const dx = p.x - x.cx, dy = p.y - x.cy, k = FT * mercScale(x.cy) / 2;
-      const u = dx * c - dy * s, v = dx * s + dy * c;  // back into the tent's own axes
-      return Math.abs(u) <= x.w * k && Math.abs(v) <= x.d * k;
-    }
+    // drags: only the tent being placed or adjusted can be dragged; everything else pans the map
     const bearing = (cx, cy, p) => (Math.atan2(p.x - cx, p.y - cy) * 180) / Math.PI;
     let drag = null;
     viewElement.addEventListener("arcgisViewDrag", (event) => {
       const e = event.detail;
-      // the draft while placing, otherwise the selected saved tent
-      const target = mode === "place" ? draft : current;
-      if (!target && !drag) return;
+      if (!work) return;
       if (e.action === "start") {
         const p = toMap({ x: e.x, y: e.y });
         if (!p) return;
-        const x = describe(target.geometry);
-        const onRing = Math.hypot(p.x - x.cx, p.y - x.cy) <= ringRadius(target.geometry) * 1.35;
-        if (!onRing && !insideTent(p, target.geometry)) return;  // not on the tent: the map pans
+        const x = describe(work.geometry);
+        const c = toScreen(new Point({ x: x.cx, y: x.cy, spatialReference: sr }));
+        const onRing = c && Math.hypot(e.x - c.x, e.y - c.y) <= RING_PX + 10;
+        if (!onRing && !insideTent(p, work.geometry)) return;
         e.stopPropagation();
-        drag = { kind: onRing ? "turn" : "move", start: p, x, b0: bearing(x.cx, x.cy, p), geometry: target.geometry,
-          isDraft: target === draft };
-        if (!drag.isDraft) hideOriginal(current.oid);
+        drag = { kind: onRing ? "turn" : "move", start: p, x, b0: bearing(x.cx, x.cy, p) };
         return;
       }
       if (!drag) return;
@@ -506,77 +701,114 @@
       const p = toMap({ x: e.x, y: e.y });
       if (p) {
         const x = drag.x;
-        drag.geometry = drag.kind === "move"
+        work.geometry = drag.kind === "move"
           ? rect(x.cx + (p.x - drag.start.x), x.cy + (p.y - drag.start.y), x.w, x.d, x.deg)
           : rect(x.cx, x.cy, x.w, x.d, Math.round(x.deg + bearing(x.cx, x.cy, p) - drag.b0));
-        drawSelection(drag.geometry, drag.isDraft);
-        hint.textContent = drag.kind === "turn" ? `Turned to ${Math.round(describe(drag.geometry).deg)}°` : "Moving";
+        draw(work.geometry, { work: true });
+        if (drag.kind === "turn") setHint(`Turned to ${Math.round(describe(work.geometry).deg)}°`);
       }
-      if (e.action === "end") {
-        const done = drag; drag = null;
-        if (done.isDraft) {  // the draft only moves on screen; Place it saves it
-          if (draft) { draft.geometry = done.geometry; showDraft(); }
-          hint.textContent = "Check it, then press Place it.";
-          return;
-        }
-        hint.textContent = HINT_BROWSE;
-        save({}, done.geometry)
-          .then(() => { say(done.kind === "turn" ? "Turned." : "Moved."); if (done.kind === "turn") lastTurn = describe(done.geometry).deg; })
-          .catch((err) => { drawSelection(current?.geometry); say("Not saved: " + (err.message || err), true); })
-          .finally(() => setTimeout(() => hideOriginal(null), 400));
-      }
+      if (e.action === "end") { drag = null; work.armed = false; showWork(); }
     });
 
-    // ---- search by spot number or renter -------------------------------------------------
-    let searchTimer = null;
-    $("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 250); });
-    $("search").addEventListener("keydown", (e) => { if (e.key === "Escape") { $("search").value = ""; $("results").classList.remove("show"); } });
-    document.addEventListener("click", (e) => { if (!e.target.closest(".search")) $("results").classList.remove("show"); });
-    async function runSearch() {
-      const q = $("search").value.trim().toUpperCase().replace(/'/g, "''");
-      const box = $("results");
-      if (!q) { box.classList.remove("show"); return; }
-      const fs = await spots.queryFeatures({
-        where: `UPPER(spot_no) LIKE '%${q}%' OR UPPER(renter) LIKE '%${q}%'`,
-        outFields: [spots.objectIdField, "spot_no", "renter", "status"], returnGeometry: false, num: 20,
-        orderByFields: ["spot_no"],
-      });
-      box.replaceChildren();
-      if (!fs.features.length) {
-        const none = document.createElement("div"); none.className = "none"; none.textContent = "No spot or renter matches.";
-        box.appendChild(none);
+    // ---- spot list, search and CSV ---------------------------------------------------------
+    let shown = new Set(STATUSES.map((s) => s.value));   // statuses the chips leave on
+    let all = [];
+    async function loadAll() {
+      const fs = await spots.queryFeatures({ where: "1=1", outFields: ["*"], returnGeometry: false, orderByFields: ["spot_no"] });
+      all = fs.features.map((f) => f.attributes);
+      all.sort((a, b) => (parseInt(a.spot_no, 10) || 1e9) - (parseInt(b.spot_no, 10) || 1e9) || String(a.spot_no).localeCompare(String(b.spot_no)));
+    }
+    function renderList() {
+      const q = $("search").value.trim().toLowerCase();
+      const rows = all.filter((a) => shown.has(a.status || "Open"))
+        .filter((a) => !q || String(a.spot_no ?? "").toLowerCase().includes(q) || String(a.renter ?? "").toLowerCase().includes(q));
+      const box = $("list"); box.replaceChildren();
+      if (!rows.length) {
+        const e = document.createElement("div"); e.className = "empty";
+        e.textContent = all.length ? "No spot matches. Clear the search or turn a status chip back on." : "No tents yet. Use Add tent to place the first one.";
+        box.appendChild(e); return;
       }
-      fs.features.forEach((f) => {
-        const a = f.attributes, b = document.createElement("button");
-        const dot = document.createElement("i"); dot.className = "dot"; dot.style.background = colorOf(a.status);
-        b.append(dot, `Spot ${a.spot_no ?? "-"}${a.renter ? " · " + a.renter : ""}`);
-        b.addEventListener("click", () => { box.classList.remove("show"); setMode("browse"); select(a[spots.objectIdField], true); });
+      rows.forEach((a) => {
+        const b = document.createElement("button"); b.className = "row"; b.type = "button";
+        const sw = document.createElement("i"); sw.className = "sw"; sw.style.background = colorOf(a.status);
+        const t = document.createElement("span"); t.className = "t"; t.textContent = `Spot ${a.spot_no ?? "-"}`;
+        const r = document.createElement("span"); r.className = "r"; r.textContent = money(a.fee);
+        const s = document.createElement("span"); s.className = "s";
+        s.textContent = [a.status || "Open", a.tent_size, a.renter].filter(Boolean).join(" · ");
+        b.append(sw, t, r, s);
+        b.addEventListener("click", () => select(a[OID], true));
         box.appendChild(b);
       });
-      box.classList.add("show");
     }
+    async function openList(focus = false) {
+      if (work) return;
+      current = null; draw(null);
+      openSheet("list", "Spots");
+      await loadAll(); renderList();
+      if (focus) $("search").focus();
+    }
+    $("listBtn").addEventListener("click", () => openList(false));
+    $("openList").addEventListener("click", () => openList(true));
+    $("search").addEventListener("input", renderList);
+    $("csvBtn").addEventListener("click", async () => {
+      await loadAll();
+      const cols = ["spot_no", "tent_size", "status", "renter", "fee", "year", "notes"];
+      const esc = (v) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+      const csv = [cols.join(","), ...all.map((a) => cols.map((c) => esc(a[c])).join(","))].join("\r\n");
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      const link = document.createElement("a");
+      link.href = url; link.download = `tent spots ${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    });
 
-    // ---- counts ---------------------------------------------------------------------------
+    // ---- status chips: counts, legend and filter ------------------------------------------
+    function applyFilter() {
+      const all4 = shown.size === STATUSES.length;
+      layerView.featureEffect = all4 ? null : {
+        filter: { where: `status IN (${[...shown].map((s) => `'${s}'`).join(",") || "''"})` },
+        excludedEffect: "opacity(12%)",
+      };
+    }
     async function refreshCounts() {
       const fs = await spots.queryFeatures({ where: "1=1", outFields: ["status", "fee"], returnGeometry: false });
       const by = Object.fromEntries(STATUSES.map((s) => [s.value, 0]));
       let booked = 0;
       fs.features.forEach((f) => {
-        by[f.attributes.status] = (by[f.attributes.status] || 0) + 1;
-        if (f.attributes.status === "Rented") booked += f.attributes.fee || 0;
+        const st = f.attributes.status || "Open";
+        by[st] = (by[st] || 0) + 1;
+        if (st === "Rented") booked += f.attributes.fee || 0;
       });
-      const box = $("counts"); box.replaceChildren();
+      const box = $("chips"); box.replaceChildren();
       STATUSES.forEach((s) => {
-        const span = document.createElement("span");
-        const dot = document.createElement("i"); dot.className = "dot"; dot.style.background = s.color;
-        span.append(dot, `${s.value} ${by[s.value]}`);
-        box.appendChild(span);
+        const b = document.createElement("button"); b.type = "button";
+        b.className = "chip" + (shown.has(s.value) ? "" : " off");
+        b.setAttribute("aria-pressed", String(shown.has(s.value)));
+        b.title = `Show or hide ${s.value} spots`;
+        const sw = document.createElement("i"); sw.className = "sw"; sw.style.background = s.color;
+        const n = document.createElement("span"); n.className = "n"; n.textContent = by[s.value];
+        b.append(sw, s.value, n);
+        b.addEventListener("click", () => {
+          shown.has(s.value) ? shown.delete(s.value) : shown.add(s.value);
+          applyFilter(); refreshCounts(); if (!$("listPane").hidden) renderList();
+        });
+        box.appendChild(b);
       });
-      const total = document.createElement("span");
-      total.textContent = `Rented fees $${booked.toLocaleString()}`;
-      box.appendChild(total);
+      const fees = document.createElement("span"); fees.className = "fees";
+      const strong = document.createElement("b"); strong.textContent = money(booked);
+      fees.append("Rented ", strong);
+      box.appendChild(fees);
     }
     refreshCounts();
+    try { spots.on("refresh", () => { refreshCounts(); if (!$("listPane").hidden) loadAll().then(renderList); }); } catch { /* counts still refresh after own edits */ }
+
+    // ---- keyboard ------------------------------------------------------------------------
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!menu.hidden) { menu.hidden = true; return; }
+      if (work) { $("wCancel").click(); return; }
+      if (!sheet.hidden) closeSheet();
+    });
   </script>
 </body>
 </html>
