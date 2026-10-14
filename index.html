@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Festival Tent Map</title>
+
+  <!-- The key is limited to this page's address, to the tent layer and the ortho, and expires.
+       Paste it between the quotes. -->
+  <script>
+    var esriConfig = { apiKey: "PASTE-KEY-HERE" };
+  </script>
+  <script type="module" src="https://js.arcgis.com/5.1/"></script>
+
+  <style>
+    :root {
+      --ink: #1d1f21; --muted: #5f6368; --line: #d9dce0; --paper: #ffffff; --wash: #f4f5f7;
+      --open: #2E9E5B; --held: #F2B33D; --rented: #D9483B; --blocked: #9AA0A6; --accent: #1d1f21;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--paper); color: var(--ink);
+      font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    body { display: flex; flex-direction: column; }
+
+    header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 10px 16px; border-bottom: 1px solid var(--line); }
+    header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+    .counts { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+    .counts span { display: inline-flex; align-items: center; gap: 5px; }
+    .dot { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+    .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--wash); }
+    .tools .label { font-size: 13px; color: var(--muted); margin-right: 2px; }
+    button { font: inherit; border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+      border-radius: 8px; padding: 8px 12px; cursor: pointer; min-height: 40px; }
+    button:hover { border-color: #b9bdc2; }
+    button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.danger { color: var(--rented); }
+    button.danger.armed { background: var(--rented); color: #fff; border-color: var(--rented); }
+    .turn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+    .turn input { width: 64px; font: inherit; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; }
+
+    main { flex: 1; position: relative; min-height: 0; }
+    arcgis-map { position: absolute; inset: 0; }
+    .hint { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 2;
+      background: rgba(29, 31, 33, .88); color: #fff; padding: 7px 12px; border-radius: 8px;
+      font-size: 13px; pointer-events: none; white-space: nowrap; max-width: calc(100% - 32px);
+      overflow: hidden; text-overflow: ellipsis; }
+
+    .panel { position: absolute; z-index: 3; right: 12px; top: 12px; width: 320px; max-height: calc(100% - 24px);
+      overflow: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .18); padding: 14px; display: none; }
+    .panel.show { display: block; }
+    .panel h2 { font-size: 15px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; }
+    .panel h2 button { min-height: 32px; padding: 4px 10px; }
+    .field { margin-bottom: 10px; }
+    .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .field input, .field select, .field textarea { width: 100%; font: inherit; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }
+    .field textarea { min-height: 56px; resize: vertical; }
+    .status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .status button { padding: 8px 4px; font-size: 13px; }
+    .status button.on[data-s="Open"] { background: var(--open); border-color: var(--open); }
+    .status button.on[data-s="Held"] { background: var(--held); border-color: var(--held); color: var(--ink); }
+    .status button.on[data-s="Rented"] { background: var(--rented); border-color: var(--rented); }
+    .status button.on[data-s="Blocked"] { background: var(--blocked); border-color: var(--blocked); }
+    .row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .row button { flex: 1; }
+    .msg { font-size: 13px; color: var(--muted); min-height: 18px; margin-top: 6px; }
+    .msg.err { color: var(--rented); }
+
+    .blocker { position: absolute; inset: 0; z-index: 5; display: none; place-items: center;
+      background: var(--paper); padding: 24px; text-align: center; color: var(--muted); }
+    .blocker.show { display: grid; }
+
+    @media (max-width: 640px) {
+      .panel { left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 62%; }
+      header h1 { font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Girard Park - Festival Planning</h1>
+    <div class="counts" id="counts"></div>
+  </header>
+
+  <div class="tools">
+    <span class="label">Place a tent:</span>
+    <button data-size="10 x 10 ft">10 x 10</button>
+    <button data-size="20 x 20 ft">20 x 20</button>
+    <button data-size="Company branded">Company branded</button>
+    <button id="selectMode" class="on">Select</button>
+    <span class="turn">Turn <input id="turn" type="number" step="5" value="0" /> &deg;</span>
+  </div>
+
+  <main>
+    <arcgis-map popup-disabled></arcgis-map>
+    <div class="hint" id="hint">Tap a tent to edit it, or pick a size to place one.</div>
+
+    <div class="panel" id="panel">
+      <h2><span id="pTitle">Tent</span><button id="close" aria-label="Close">Close</button></h2>
+      <div class="field"><label for="fSpot">Spot number</label><input id="fSpot" maxlength="20" /></div>
+      <div class="field"><label for="fSize">Tent size</label><select id="fSize"></select></div>
+      <div class="field"><label>Status</label><div class="status" id="fStatus"></div></div>
+      <div class="field"><label for="fRenter">Renter</label><input id="fRenter" maxlength="120" /></div>
+      <div class="field"><label for="fFee">Fee ($)</label><input id="fFee" type="number" min="0" step="1" /></div>
+      <div class="field"><label for="fNotes">Notes</label><textarea id="fNotes" maxlength="500"></textarea></div>
+      <div class="field"><label>Turn or move</label>
+        <div class="row">
+          <button data-rot="-15">&#8634; 15&deg;</button><button data-rot="-5">&#8634; 5&deg;</button>
+          <button data-rot="5">&#8635; 5&deg;</button><button data-rot="15">&#8635; 15&deg;</button>
+        </div>
+        <div class="row" style="margin-top:6px"><button id="move">Move: tap the new spot</button></div>
+      </div>
+      <div class="row"><button id="save" class="on">Save</button><button id="del" class="danger">Delete</button></div>
+      <div class="msg" id="msg"></div>
+    </div>
+
+    <div class="blocker" id="blocker"></div>
+  </main>
+
+  <script type="module">
+    // ---- this festival's setup ------------------------------------------------------------
+    const ORTHO_URL = "https://tiles.arcgis.com/tiles/RuzrqSSqWodruOMi/arcgis/rest/services/Girard_Park_Ortho_2026_10_09/MapServer";
+    const SPOTS_URL = "https://services9.arcgis.com/RuzrqSSqWodruOMi/arcgis/rest/services/Girard_Park___Tent_Spots/FeatureServer/0";
+    // sizes and fees from the festival's tent village page (2026); a branded tent is at most 20 x 20
+    const SIZES = [
+      { value: "10 x 10 ft", feet: 10, fee: 100 },
+      { value: "20 x 20 ft", feet: 20, fee: 150 },
+      { value: "Company branded", feet: 20, fee: 500 },
+    ];
+    const STATUSES = [
+      { value: "Open", color: "#2E9E5B" }, { value: "Held", color: "#F2B33D" },
+      { value: "Rented", color: "#D9483B" }, { value: "Blocked", color: "#9AA0A6" },
+    ];
+    const YEAR = 2027;
+    // ----------------------------------------------------------------------------------------
+
+    const $ = (id) => document.getElementById(id);
+    const blocker = $("blocker");
+    if (!window.esriConfig || !esriConfig.apiKey || esriConfig.apiKey.startsWith("PASTE")) {
+      blocker.textContent = "This page has no key yet. Paste the ArcGIS key into index.html where it is marked.";
+      blocker.classList.add("show");
+      throw new Error("no key");
+    }
+
+    const [Map, Basemap, TileLayer, FeatureLayer, Graphic, Polygon] = await $arcgis.import([
+      "@arcgis/core/Map.js", "@arcgis/core/Basemap.js", "@arcgis/core/layers/TileLayer.js",
+      "@arcgis/core/layers/FeatureLayer.js", "@arcgis/core/Graphic.js", "@arcgis/core/geometry/Polygon.js",
+    ]);
+
+    const hex = (h, a) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16), a];
+    const ortho = new TileLayer({ url: ORTHO_URL, title: "Ortho" });
+    const spots = new FeatureLayer({
+      url: SPOTS_URL, title: "Tent spots", outFields: ["*"], popupEnabled: false,
+      renderer: {
+        type: "unique-value", field: "status",
+        uniqueValueInfos: STATUSES.map((s) => ({
+          value: s.value, label: s.value,
+          symbol: { type: "simple-fill", color: hex(s.color, 0.43), outline: { color: hex(s.color, 1), width: 2 } },
+        })),
+      },
+      labelingInfo: [{
+        labelExpressionInfo: { expression: "$feature.spot_no" }, minScale: 2500,
+        symbol: { type: "text", color: "white", haloColor: [30, 30, 30, 0.8], haloSize: 1.2,
+          font: { family: "Arial", size: 10, weight: "bold" } },
+      }],
+    });
+    const viewElement = document.querySelector("arcgis-map");
+    viewElement.map = new Map({
+      basemap: new Basemap({ baseLayers: [new TileLayer({
+        url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer" })] }),
+      layers: [ortho, spots],
+    });
+    await viewElement.viewOnReady();
+    try {
+      await Promise.all([ortho.load(), spots.load()]);
+    } catch (e) {
+      blocker.textContent = "The map could not load its layers. The key may have expired or lost access: " + (e.message || e);
+      blocker.classList.add("show");
+      throw e;
+    }
+    await viewElement.goTo(ortho.fullExtent);
+    const layerView = await viewElement.whenLayerView(spots);
+
+    // ---- geometry: a true-size square in Web Mercator ------------------------------------
+    const R = 6378137;
+    const mercScale = (y) => 1 / Math.cos(Math.atan(Math.sinh(y / R)));  // map units per ground metre
+    function square(cx, cy, feet, deg) {
+      const h = (feet * 0.3048 / 2) * mercScale(cy), t = (deg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+      // clockwise ring, as ArcGIS wants for an outer ring; negative turn is clockwise on screen
+      const ring = [[-h, -h], [-h, h], [h, h], [h, -h], [-h, -h]].map(([x, y]) => [cx + x * c + y * s, cy - x * s + y * c]);
+      return new Polygon({ rings: [ring], spatialReference: { wkid: 102100 } });
+    }
+    function describe(poly) {  // centre and turn of a square made by square()
+      const r = poly.rings[0];
+      const cx = (r[0][0] + r[1][0] + r[2][0] + r[3][0]) / 4, cy = (r[0][1] + r[1][1] + r[2][1] + r[3][1]) / 4;
+      const deg = (Math.atan2(r[1][0] - r[0][0], r[1][1] - r[0][1]) * 180) / Math.PI;
+      return { cx, cy, deg };
+    }
+    const sizeOf = (v) => SIZES.find((s) => s.value === v) || SIZES[0];
+
+    // ---- state ----------------------------------------------------------------------------
+    let mode = "select";       // "select", "place", or "move"
+    let placeSize = null;
+    let current = null;        // { oid, geometry, attrs }
+    let highlight = null;
+
+    const hint = $("hint"), panel = $("panel"), msg = $("msg");
+    const say = (t, err = false) => { msg.textContent = t; msg.className = "msg" + (err ? " err" : ""); };
+    function setMode(m, size = null) {
+      mode = m; placeSize = size;
+      document.querySelectorAll(".tools [data-size]").forEach((b) => b.classList.toggle("on", m === "place" && b.dataset.size === size));
+      $("selectMode").classList.toggle("on", m === "select");
+      hint.textContent = m === "place" ? `Tap the ortho to place a ${size} tent. Tap again for another.`
+        : m === "move" ? "Tap where the tent should go." : "Tap a tent to edit it, or pick a size to place one.";
+    }
+    document.querySelectorAll(".tools [data-size]").forEach((b) => b.addEventListener("click", () => setMode("place", b.dataset.size)));
+    $("selectMode").addEventListener("click", () => setMode("select"));
+
+    // ---- panel ----------------------------------------------------------------------------
+    $("fSize").innerHTML = "";
+    SIZES.forEach((s) => $("fSize").add(new Option(s.value, s.value)));
+    STATUSES.forEach((s) => {
+      const b = document.createElement("button");
+      b.textContent = s.value; b.dataset.s = s.value;
+      b.addEventListener("click", () => markStatus(s.value));
+      $("fStatus").appendChild(b);
+    });
+    const markStatus = (v) => document.querySelectorAll("#fStatus button").forEach((b) => b.classList.toggle("on", b.dataset.s === v));
+    const chosenStatus = () => document.querySelector("#fStatus button.on")?.dataset.s || "Open";
+    $("fSize").addEventListener("change", () => { $("fFee").value = sizeOf($("fSize").value).fee; });
+
+    function openPanel(oid, geometry, a) {
+      current = { oid, geometry, attrs: a };
+      $("pTitle").textContent = a.spot_no ? `Spot ${a.spot_no}` : "New tent";
+      $("fSpot").value = a.spot_no || "";
+      $("fSize").value = a.tent_size || SIZES[0].value;
+      markStatus(a.status || "Open");
+      $("fRenter").value = a.renter || "";
+      $("fFee").value = a.fee ?? "";
+      $("fNotes").value = a.notes || "";
+      disarm(); say("");
+      panel.classList.add("show");
+    }
+    function closePanel() {
+      panel.classList.remove("show"); current = null;
+      if (highlight) { highlight.remove(); highlight = null; }
+      if (mode === "move") setMode("select");
+    }
+    $("close").addEventListener("click", closePanel);
+
+    async function select(oid) {
+      const fs = await spots.queryFeatures({ objectIds: [oid], outFields: ["*"], returnGeometry: true, outSpatialReference: { wkid: 102100 } });
+      const f = fs.features[0];
+      if (!f) return;
+      if (highlight) highlight.remove();
+      highlight = layerView.highlight(f);
+      openPanel(oid, f.geometry, f.attributes);
+    }
+
+    async function nextSpotNumber() {
+      const fs = await spots.queryFeatures({ where: "1=1", outFields: ["spot_no"], returnGeometry: false });
+      const nums = fs.features.map((f) => parseInt(f.attributes.spot_no, 10)).filter((n) => !isNaN(n));
+      return String(nums.length ? Math.max(...nums) + 1 : 1);
+    }
+
+    async function save(fields, geometry) {
+      const attrs = { OBJECTID: current.oid, ...fields };
+      const g = new Graphic({ attributes: attrs, ...(geometry ? { geometry } : {}) });
+      const r = await spots.applyEdits({ updateFeatures: [g] });
+      const res = r.updateFeatureResults[0];
+      if (res.error) throw new Error(res.error.message);
+      Object.assign(current.attrs, fields);
+      if (geometry) current.geometry = geometry;
+      refreshCounts();
+    }
+
+    $("save").addEventListener("click", async () => {
+      if (!current) return;
+      const fee = $("fFee").value === "" ? null : Number($("fFee").value);
+      const fields = { spot_no: $("fSpot").value.trim() || null, tent_size: $("fSize").value, status: chosenStatus(),
+        renter: $("fRenter").value.trim() || null, fee, notes: $("fNotes").value.trim() || null };
+      let geometry = null;
+      if (fields.tent_size !== current.attrs.tent_size) {  // a new size redraws the square in place
+        const d = describe(current.geometry);
+        geometry = square(d.cx, d.cy, sizeOf(fields.tent_size).feet, d.deg);
+      }
+      try { await save(fields, geometry); $("pTitle").textContent = fields.spot_no ? `Spot ${fields.spot_no}` : "Tent"; say("Saved."); }
+      catch (e) { say("Not saved: " + (e.message || e), true); }
+    });
+
+    document.querySelectorAll("[data-rot]").forEach((b) => b.addEventListener("click", async () => {
+      if (!current) return;
+      const d = describe(current.geometry);
+      const deg = d.deg + Number(b.dataset.rot);
+      try { await save({}, square(d.cx, d.cy, sizeOf(current.attrs.tent_size).feet, deg)); $("turn").value = Math.round(deg); say(`Turned to ${Math.round(deg)}°.`); }
+      catch (e) { say("Not turned: " + (e.message || e), true); }
+    }));
+    $("move").addEventListener("click", () => { if (current) setMode("move"); });
+
+    let armedAt = 0;
+    const disarm = () => { armedAt = 0; $("del").classList.remove("armed"); $("del").textContent = "Delete"; };
+    $("del").addEventListener("click", async () => {
+      if (!current) return;
+      if (Date.now() - armedAt > 4000) { armedAt = Date.now(); $("del").classList.add("armed"); $("del").textContent = "Tap again to delete"; return; }
+      try {
+        const r = await spots.applyEdits({ deleteFeatures: [{ objectId: current.oid }] });
+        if (r.deleteFeatureResults[0].error) throw new Error(r.deleteFeatureResults[0].error.message);
+        closePanel(); refreshCounts();
+      } catch (e) { disarm(); say("Not deleted: " + (e.message || e), true); }
+    });
+
+    // ---- map taps -------------------------------------------------------------------------
+    viewElement.addEventListener("arcgisViewClick", async (event) => {
+      const p = event.detail.mapPoint;
+      if (!p) return;
+      if (mode === "place") {
+        const s = sizeOf(placeSize);
+        const geometry = square(p.x, p.y, s.feet, Number($("turn").value) || 0);
+        const attrs = { spot_no: await nextSpotNumber(), tent_size: s.value, status: "Open", fee: s.fee, year: YEAR };
+        try {
+          const r = await spots.applyEdits({ addFeatures: [new Graphic({ geometry, attributes: attrs })] });
+          const res = r.addFeatureResults[0];
+          if (res.error) throw new Error(res.error.message);
+          refreshCounts();
+          await select(res.objectId);
+          say(`Placed spot ${attrs.spot_no}.`);
+        } catch (e) { hint.textContent = "Not placed: " + (e.message || e); }
+        return;
+      }
+      if (mode === "move" && current) {
+        const d = describe(current.geometry);
+        try { await save({}, square(p.x, p.y, sizeOf(current.attrs.tent_size).feet, d.deg)); say("Moved."); }
+        catch (e) { say("Not moved: " + (e.message || e), true); }
+        setMode("select");
+        return;
+      }
+      const hit = await viewElement.hitTest(event.detail, { include: [spots] });
+      const g = hit.results.find((r) => r.graphic && r.graphic.layer === spots)?.graphic;
+      if (g) await select(g.attributes[spots.objectIdField]);
+      else closePanel();
+    });
+
+    // ---- counts ---------------------------------------------------------------------------
+    async function refreshCounts() {
+      const fs = await spots.queryFeatures({ where: "1=1", outFields: ["status", "fee"], returnGeometry: false });
+      const by = Object.fromEntries(STATUSES.map((s) => [s.value, 0]));
+      let booked = 0;
+      fs.features.forEach((f) => {
+        by[f.attributes.status] = (by[f.attributes.status] || 0) + 1;
+        if (f.attributes.status === "Rented") booked += f.attributes.fee || 0;
+      });
+      const box = $("counts"); box.innerHTML = "";
+      STATUSES.forEach((s) => {
+        const span = document.createElement("span");
+        const dot = document.createElement("i"); dot.className = "dot"; dot.style.background = s.color;
+        span.append(dot, `${s.value} ${by[s.value]}`);
+        box.appendChild(span);
+      });
+      const total = document.createElement("span");
+      total.textContent = `Rented fees $${booked.toLocaleString()}`;
+      box.appendChild(total);
+    }
+    refreshCounts();
+  </script>
+</body>
+</html>
