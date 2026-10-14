@@ -93,6 +93,8 @@
     .workbar .what b { display: block; font-size: 14px; }
     .workbar .what span { font-size: 13px; }
     .workbar .btn { border-color: var(--black); }
+    .rowctl { flex-basis: 100%; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+    .rowctl input { width: 64px; padding: 7px 8px; border: 1px solid var(--black); border-radius: var(--radius); background: var(--paper); }
 
     /* size menu */
     .menu { position: absolute; z-index: 6; left: 50%; transform: translateX(-50%);
@@ -223,8 +225,13 @@
 
     <div class="workbar" id="workbar" hidden>
       <div class="what"><b id="wTitle"></b><span id="wText"></span></div>
+      <button class="btn" id="wRow">Make a row</button>
       <button class="btn dark" id="wOk"></button>
       <button class="btn" id="wCancel">Cancel</button>
+      <div class="rowctl" id="rowCtl" hidden>
+        <label for="rowN">Tents</label><input id="rowN" type="number" min="2" max="50" step="1" value="5" />
+        <label for="rowGap">Gap</label><input id="rowGap" type="number" min="0" step="1" value="0" /> ft
+      </div>
     </div>
 
     <div class="toast" id="toast" hidden><span id="toastText"></span><button id="toastUndo">Undo</button></div>
@@ -397,6 +404,20 @@
     const knobG = new Graphic({ symbol: { type: "simple-marker", style: "circle", size: 14,
       color: [...YELLOW, 1], outline: { color: [0, 0, 0, 1], width: 2 } } });
     viewElement.graphics.addMany([outlineG, ringG, knobG]);
+    // a row: the first tent is the draft, the rest follow along its width at the set gap
+    let rowGs = [];
+    function rowGeometries(w) {
+      if (!w?.row) return [w.geometry];
+      const x = describe(w.geometry), t = (x.deg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+      const step = (x.w + w.row.gap) * FT * mercScale(x.cy);
+      return Array.from({ length: w.row.count }, (_, i) => rect(x.cx + i * step * c, x.cy - i * step * s, x.w, x.d, x.deg));
+    }
+    function drawRow() {
+      viewElement.graphics.removeMany(rowGs);
+      rowGs = work?.row ? rowGeometries(work).slice(1).map((g) => new Graphic({ geometry: g, symbol: {
+        type: "simple-fill", color: [...YELLOW, 0.25], outline: { color: [...YELLOW, 1], width: 2, style: "dash" } } })) : [];
+      viewElement.graphics.addMany(rowGs);
+    }
     function draw(geometry, { work = false } = {}) {
       if (!geometry) { outlineG.geometry = ringG.geometry = knobG.geometry = null; return; }
       outlineG.geometry = geometry;
@@ -546,6 +567,16 @@
       $("undoBtn").disabled = false;
       toast(text);
     }
+    async function addTents(list) {  // a row, saved in one request and undone as one
+      const r = await spots.applyEdits({ addFeatures: list.map(({ geometry, attrs }) => new Graphic({ geometry, attributes: attrs })) });
+      const res = r.addFeatureResults || [];
+      const bad = res.find((x) => x.error);
+      const oids = res.filter((x) => !x.error).map((x) => x.objectId);
+      refreshCounts(); if (!$("listPane").hidden) renderList();
+      if (oids.length) remember({ kind: "addMany", oids }, `Placed ${oids.length} tents, spots ${list[0].attrs.spot_no} to ${list[oids.length - 1].attrs.spot_no}`);
+      if (bad) throw new Error(`${res.length - oids.length} of ${res.length} tents were not saved: ${bad.error.message}`);
+      return oids;
+    }
     async function addTent(geometry, attrs) {
       const res = await apply({ addFeatures: [new Graphic({ geometry, attributes: attrs })] });
       remember({ kind: "add", oid: res.objectId }, `Placed spot ${attrs.spot_no}`);
@@ -569,6 +600,10 @@
       if (!e) return;
       try {
         if (e.kind === "add") { await apply({ deleteFeatures: [{ objectId: e.oid }] }); if (current?.oid === e.oid) closeSheet(); }
+        else if (e.kind === "addMany") {
+          await apply({ deleteFeatures: e.oids.map((objectId) => ({ objectId })) });
+          if (current && e.oids.includes(current.oid)) closeSheet();
+        }
         else if (e.kind === "update") {
           await apply({ updateFeatures: [new Graphic({ attributes: { [OID]: e.oid, ...e.before.attrs }, geometry: e.before.geometry })] });
           if (current?.oid === e.oid) { current.attrs = { ...current.attrs, ...e.before.attrs }; current.geometry = e.before.geometry; draw(current.geometry); showTent("Change undone."); }
@@ -729,30 +764,55 @@
     function showWork(text) {
       const x = describe(work.geometry);
       const dims = work.size && work.size !== "Custom" ? work.size : `${x.w} x ${x.d} ft`;
-      $("wTitle").textContent = work.kind === "new" ? `New tent, ${dims}` : `Moving spot ${current?.attrs.spot_no ?? ""}`;
-      $("wText").textContent = text || "Drag it, tap the map to put it there, or drag the ring to turn it.";
-      $("wOk").textContent = work.armed ? (work.kind === "new" ? "Place anyway" : "Save anyway") : (work.kind === "new" ? "Place it" : "Done");
+      $("wTitle").textContent = work.kind === "adjust" ? `Moving spot ${current?.attrs.spot_no ?? ""}`
+        : work.row ? `Row of ${work.row.count} tents, ${dims}` : `New tent, ${dims}`;
+      $("wText").textContent = text || (work.row
+        ? "Drag the row, tap the map to move it there, or drag the ring on the first tent to turn it."
+        : "Drag it, tap the map to put it there, or drag the ring to turn it.");
+      const placeWord = work.row ? "Place them" : "Place it";
+      $("wOk").textContent = work.armed ? (work.kind === "new" ? "Place anyway" : "Save anyway") : (work.kind === "new" ? placeWord : "Done");
+      $("wRow").hidden = work.kind !== "new";
+      $("wRow").textContent = work.row ? "Single tent" : "Make a row";
+      $("rowCtl").hidden = !work.row;
       $("actions").hidden = true; $("workbar").hidden = false;
       draw(work.geometry, { work: true });
+      drawRow();
       setHint("");
     }
     function endWork() {
       if (work?.kind === "adjust") layerView.filter = null;
-      work = null; $("workbar").hidden = true; $("actions").hidden = false;
+      work = null; drawRow(); $("workbar").hidden = true; $("actions").hidden = false;
       draw(current ? current.geometry : null);
     }
+    function readRow() {
+      const n = Math.round(Number($("rowN").value)), gap = Number($("rowGap").value);
+      return { count: Math.min(50, Math.max(2, n || 2)), gap: Math.max(0, isNaN(gap) ? 0 : gap) };
+    }
+    $("wRow").addEventListener("click", () => { if (!work) return; work.row = work.row ? null : readRow(); work.armed = false; showWork(); });
+    ["rowN", "rowGap"].forEach((id) => $(id).addEventListener("input", () => { if (work?.row) { work.row = readRow(); work.armed = false; showWork(); } }));
     $("wCancel").addEventListener("click", () => { const k = work?.kind; endWork(); if (k === "adjust" && current) showTent(); });
     $("wOk").addEventListener("click", async () => {
       if (!work) return;
       const btn = $("wOk"); btn.disabled = true;
       try {
+        const geoms = rowGeometries(work);
         if (!work.armed) {
-          const hits = await overlapping(work.geometry, work.kind === "adjust" ? work.oid : null);
-          if (hits.length) { work.armed = true; showWork(`It overlaps spot ${hits.join(", ")}.`); return; }
+          const hits = [...new Set((await Promise.all(geoms.map((g) => overlapping(g, work.kind === "adjust" ? work.oid : null)))).flat())];
+          if (hits.length) { work.armed = true; showWork(`${geoms.length > 1 ? "The row" : "It"} overlaps spot ${hits.join(", ")}.`); return; }
         }
         const x = describe(work.geometry);
         lastTurn = x.deg;
-        if (work.kind === "new") {
+        if (work.kind === "new" && work.row) {
+          const s = sizeOf(work.size), first = parseInt(await nextSpotNumber(), 10);
+          const list = geoms.map((geometry, i) => ({ geometry,
+            attrs: { spot_no: String(first + i), tent_size: s.value, status: "Open", fee: s.fee, year: YEAR } }));
+          const oids = await addTents(list);
+          endWork();
+          await openList(false);
+          setHint(`Placed spots ${list[0].attrs.spot_no} to ${list[list.length - 1].attrs.spot_no}.`);
+          setTimeout(() => setHint(""), 2500);
+          if (!oids.length) throw new Error("no tents were saved");
+        } else if (work.kind === "new") {
           const s = sizeOf(work.size);
           const attrs = { spot_no: await nextSpotNumber(), tent_size: s.value, status: "Open", fee: s.fee, year: YEAR };
           const oid = await addTent(work.geometry, attrs);
@@ -796,7 +856,7 @@
         const x = describe(work.geometry);
         const c = toScreen(new Point({ x: x.cx, y: x.cy, spatialReference: sr }));
         const onRing = c && Math.hypot(e.x - c.x, e.y - c.y) <= RING_PX + 10;
-        if (!onRing && !insideTent(p, work.geometry)) return;
+        if (!onRing && !rowGeometries(work).some((g) => insideTent(p, g))) return;
         e.stopPropagation();
         drag = { kind: onRing ? "turn" : "move", start: p, x, b0: bearing(x.cx, x.cy, p) };
         return;
@@ -810,6 +870,7 @@
           ? rect(x.cx + (p.x - drag.start.x), x.cy + (p.y - drag.start.y), x.w, x.d, x.deg)
           : rect(x.cx, x.cy, x.w, x.d, Math.round(x.deg + bearing(x.cx, x.cy, p) - drag.b0));
         draw(work.geometry, { work: true });
+        drawRow();
         if (drag.kind === "turn") setHint(`Turned to ${Math.round(describe(work.geometry).deg)}°`);
       }
       if (e.action === "end") { drag = null; work.armed = false; showWork(); }
