@@ -182,7 +182,9 @@
       blocker.classList.add("show");
       throw e;
     }
+    // open on the park and keep the view near it: the ortho is the flown park
     await viewElement.goTo(ortho.fullExtent);
+    viewElement.constraints = { geometry: ortho.fullExtent.clone().expand(1.5), minScale: 12000, rotationEnabled: false };
     const layerView = await viewElement.whenLayerView(spots);
 
     // ---- geometry: a true-size square in Web Mercator ------------------------------------
