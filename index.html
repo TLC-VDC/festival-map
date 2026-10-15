@@ -106,6 +106,10 @@
     .menu .custom { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 14px; }
     .menu .custom input { width: 64px; padding: 8px; border: 1px solid var(--grey-20); border-radius: var(--radius); }
 
+    .mapbtn { background: var(--paper); border: 0; border-radius: 0; min-width: 32px; min-height: 32px; padding: 6px 8px;
+      font-size: 12px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.3); color: var(--ink); }
+    .mapbtn:hover { background: var(--wash); }
+    .mapbtn.on { background: var(--black); color: var(--paper); }
     .hint { position: absolute; z-index: 3; left: 50%; top: 12px; transform: translateX(-50%);
       background: rgba(0,0,0,.82); color: var(--paper); padding: 7px 12px; border-radius: var(--radius); font-size: 13px;
       pointer-events: none; max-width: calc(100% - 140px); text-align: center; }
@@ -191,6 +195,8 @@
       <arcgis-zoom slot="top-left"></arcgis-zoom>
       <arcgis-home slot="top-left"></arcgis-home>
       <arcgis-locate slot="top-left"></arcgis-locate>
+      <arcgis-compass slot="top-left"></arcgis-compass>
+      <button slot="top-left" class="mapbtn" id="turnMap" title="Turn the map to run along the park">Along park</button>
       <arcgis-distance-measurement-2d slot="top-right" unit="feet" id="measure" hidden></arcgis-distance-measurement-2d>
     </arcgis-map>
     <div class="hint" id="hint"></div>
@@ -254,6 +260,16 @@
       <div class="foot" id="viewFoot" hidden>
         <button class="btn primary" id="vEdit">Edit details</button>
         <button class="btn" id="vMove">Move or turn</button>
+      </div>
+
+      <!-- a festival feature: stage, festival tent, zone or service point; read only -->
+      <div class="body" id="refPane" hidden>
+        <dl class="info">
+          <dt>Kind</dt><dd id="rKind"></dd>
+          <dt>Position</dt><dd id="rPos"></dd>
+          <dt>Notes</dt><dd id="rNotes"></dd>
+        </dl>
+        <p class="msg">Festival features are added and changed in the ArcGIS web map, not on this page.</p>
       </div>
 
       <!-- a tent, editing -->
@@ -341,11 +357,34 @@
           font: { family: "Arial", size: 10, weight: "bold" } },
       }],
     });
+    // what the tents work around: the festival's stages, tents, zones and keep-clear areas, and its service points.
+    // They are layers 1 and 2 of the same service, edited in Map Viewer; this page only shows them.
+    const BLOCKING = ["Stage", "Festival tent", "Keep clear"];   // kinds a rented tent must not sit on
+    const refLabels = [{ labelExpressionInfo: { expression: "$feature.name" }, minScale: 5000,
+      symbol: { type: "text", color: "white", haloColor: [0, 0, 0, 0.85], haloSize: 1.2, font: { family: "Arial", size: 9, weight: "bold" } } }];
+    const greyFill = (c) => ({ type: "simple-fill", color: [c, c, c, 0.45], outline: { color: [255, 255, 255, 0.9], width: 1.5 } });
+    const layout = new FeatureLayer({
+      url: SPOTS_URL.replace(/\/0$/, "/1"), title: "Festival layout", outFields: ["*"], popupEnabled: false,
+      renderer: { type: "unique-value", field: "kind", defaultSymbol: greyFill(150), uniqueValueInfos: [
+        { value: "Stage", symbol: greyFill(40) }, { value: "Festival tent", symbol: greyFill(85) },
+        { value: "Food or craft area", symbol: greyFill(130) }, { value: "Exhibit area", symbol: greyFill(170) },
+        { value: "Parking", symbol: greyFill(200) },
+        { value: "Keep clear", symbol: { type: "simple-fill", style: "backward-diagonal", color: [217, 72, 59, 1],
+          outline: { color: [217, 72, 59, 1], width: 2, style: "dash" } } },
+      ] },
+      labelingInfo: refLabels,
+    });
+    const services = new FeatureLayer({
+      url: SPOTS_URL.replace(/\/0$/, "/2"), title: "Festival services", outFields: ["*"], popupEnabled: false,
+      renderer: { type: "simple", symbol: { type: "simple-marker", style: "circle", size: 10, color: [255, 255, 255, 1],
+        outline: { color: [0, 0, 0, 1], width: 2 } } },
+      labelingInfo: [{ ...refLabels[0], labelPlacement: "above-center" }],
+    });
     const viewElement = document.querySelector("arcgis-map");
     viewElement.map = new Map({
       basemap: new Basemap({ baseLayers: [new TileLayer({
         url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer" })] }),
-      layers: [ortho, spots],
+      layers: [ortho, layout, services, spots],
     });
     await viewElement.viewOnReady();
     try {
@@ -354,11 +393,32 @@
       stop("The map could not load its layers. The key may have expired or lost access: " + (e.message || e));
       throw e;
     }
+    // the reference layers are optional: the page works without them
+    const refOk = { layout: true, services: true };
+    await layout.load().catch(() => { refOk.layout = false; });
+    await services.load().catch(() => { refOk.services = false; });
     // open on the park and keep the view near it: the ortho is the flown park
     const park = ortho.fullExtent;
     await viewElement.goTo(park);
-    viewElement.constraints = { geometry: park.clone().expand(1.5), minScale: 12000, rotationEnabled: false };
+    // two-finger twist on a phone, right-drag on a computer; the compass puts north back up
+    viewElement.constraints = { geometry: park.clone().expand(1.5), minScale: 12000, rotationEnabled: true };
     try { document.querySelector("arcgis-home").viewpoint = viewElement.viewpoint.clone(); } catch { /* home falls back to its own default */ }
+    // the park runs about 31 degrees east of north (its long axis, measured on the ortho). "Along park" turns the map so it runs
+    // up a tall screen or across a wide one; pressed again it puts north back up.
+    const PARK_BEARING = 31;
+    const rotationOf = () => (viewElement.rotation ?? viewElement.view?.rotation ?? 0);
+    function syncTurnButton() {
+      const r = ((rotationOf() % 360) + 360) % 360;
+      $("turnMap").classList.toggle("on", r > 0.5 && r < 359.5);
+      $("turnMap").textContent = r > 0.5 && r < 359.5 ? "North up" : "Along park";
+    }
+    $("turnMap").addEventListener("click", () => {
+      const r = ((rotationOf() % 360) + 360) % 360;
+      const along = innerHeight >= innerWidth ? 360 - PARK_BEARING : 90 - PARK_BEARING;
+      const target = r > 0.5 && r < 359.5 ? 0 : along;
+      viewElement.goTo({ target: park, rotation: target }).catch(() => {}).finally(syncTurnButton);
+    });
+    reactiveUtils.watch(() => viewElement.rotation, syncTurnButton);
     const layerView = await viewElement.whenLayerView(spots);
     blocker.hidden = true;
     const OID = spots.objectIdField;
@@ -439,7 +499,14 @@
 
     // ---- the sheet: one place for a tent, its edit form and the spot list ----------------
     const sheet = $("sheet");
-    const panes = ["viewPane", "viewFoot", "editPane", "editFoot", "listPane", "listFoot"];
+    const panes = ["viewPane", "viewFoot", "editPane", "editFoot", "listPane", "listFoot", "refPane"];
+    function showRef(a) {
+      current = null; draw(null);
+      $("rKind").textContent = a.kind || "-";
+      $("rPos").textContent = a.position || "-";
+      $("rNotes").textContent = a.notes || "-";
+      openSheet("ref", a.name || a.kind || "Festival feature");
+    }
     function openSheet(which, title) {
       panes.forEach((p) => { $(p).hidden = !p.startsWith(which); });
       $("sTitle").textContent = title;
@@ -724,7 +791,15 @@
       const probe = rect(x.cx, x.cy, Math.max(0.5, x.w - 0.5), Math.max(0.5, x.d - 0.5), x.deg);
       const fs = await spots.queryFeatures({ geometry: probe, spatialRelationship: "intersects",
         where: exceptOid == null ? "1=1" : `${OID} <> ${exceptOid}`, outFields: ["spot_no"], returnGeometry: false });
-      return fs.features.map((f) => f.attributes.spot_no ?? "?");
+      const hits = fs.features.map((f) => `spot ${f.attributes.spot_no ?? "?"}`);
+      if (refOk.layout) {
+        try {
+          const ref = await layout.queryFeatures({ geometry: probe, spatialRelationship: "intersects",
+            where: `kind IN (${BLOCKING.map((k) => `'${k}'`).join(",")})`, outFields: ["name", "kind"], returnGeometry: false });
+          ref.features.forEach((f) => hits.push(`${(f.attributes.kind || "").toLowerCase()} ${f.attributes.name || ""}`.trim()));
+        } catch { /* the tent check still stands */ }
+      }
+      return hits;
     }
     async function spotTaken(no, exceptOid) {
       const fs = await spots.queryFeatures({ where: `spot_no = '${String(no).replace(/'/g, "''")}' AND ${OID} <> ${exceptOid ?? -1}`,
@@ -798,7 +873,7 @@
         const geoms = rowGeometries(work);
         if (!work.armed) {
           const hits = [...new Set((await Promise.all(geoms.map((g) => overlapping(g, work.kind === "adjust" ? work.oid : null)))).flat())];
-          if (hits.length) { work.armed = true; showWork(`${geoms.length > 1 ? "The row" : "It"} overlaps spot ${hits.join(", ")}.`); return; }
+          if (hits.length) { work.armed = true; showWork(`${geoms.length > 1 ? "The row" : "It"} overlaps ${hits.join(", ")}.`); return; }
         }
         const x = describe(work.geometry);
         lastTurn = x.deg;
@@ -838,10 +913,13 @@
         showWork();
         return;
       }
-      const hit = await viewElement.hitTest(event.detail, { include: [spots] });
-      const g = hit.results.find((r) => r.graphic && r.graphic.layer === spots)?.graphic;
-      if (g) await select(g.attributes[OID]);
-      else if (!sheet.hidden && !$("viewPane").hidden) closeSheet();
+      const hit = await viewElement.hitTest(event.detail, { include: [spots, services, layout] });
+      const found = (layer) => hit.results.find((r) => r.graphic && r.graphic.layer === layer)?.graphic;
+      const g = found(spots);
+      if (g) { await select(g.attributes[OID]); return; }
+      const ref = found(services) || found(layout);   // a tent wins over what lies under it
+      if (ref) { showRef(ref.attributes); return; }
+      if (!sheet.hidden && (!$("viewPane").hidden || !$("refPane").hidden)) closeSheet();
     });
 
     // drags: only the tent being placed or adjusted can be dragged; everything else pans the map
