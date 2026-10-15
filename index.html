@@ -908,7 +908,7 @@
         remember({ kind: "refAdd", layer: w.layer, oid: res.objectId }, `Added ${w.kind.toLowerCase()}`);
         endRefWork();
         await showRef(w.layer, res.objectId);
-        showFix("Give it a name, and set Position to Traced from the ortho if you drew it over what the ortho shows.");
+        showFix("");
       } catch (e) { showRefWork("Not saved: " + (e.message || e)); }
     });
 
