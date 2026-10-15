@@ -166,11 +166,11 @@
     .seg3 button.on { background: var(--black); border-color: var(--black); color: var(--paper); }
     .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 14px; }
     .checks label { display: flex; gap: 6px; align-items: center; }
-    .shield { position: absolute; inset: 0; z-index: 9; background: rgba(0,0,0,.18); }
-    .statusbar { position: absolute; z-index: 10; left: 50%; top: 12px; transform: translateX(-50%); width: min(420px, calc(100% - 32px));
-      background: var(--black); color: var(--paper); border-radius: var(--radius); padding: 9px 12px 10px; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
-    .sb-text { font-size: 13px; margin-bottom: 6px; }
-    .sb-track { height: 6px; background: var(--grey-80); border-radius: 3px; overflow: hidden; }
+    .shield { position: absolute; inset: 0; z-index: 9; background: var(--paper); }
+    .statusbar { position: absolute; z-index: 10; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100% - 32px));
+      color: var(--ink); text-align: center; }
+    .sb-text { font-size: 15px; font-weight: 500; margin-bottom: 10px; font-variant-numeric: tabular-nums; }
+    .sb-track { height: 8px; background: var(--grey-20); border-radius: 4px; overflow: hidden; }
     .sb-fill { height: 100%; width: 0; background: var(--yellow); transition: width .2s; }
     .blocker { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; background: var(--paper);
       padding: 24px; text-align: center; color: var(--grey-60); }
@@ -219,7 +219,7 @@
       <button class="btn primary" id="addBtn" aria-haspopup="true">+ Add</button>
       <button class="btn" id="listBtn">Spot list</button>
       <button class="btn" id="measureBtn" aria-pressed="false">Measure</button>
-      <button class="btn" id="printBtn" aria-haspopup="true">Print</button>
+      <button class="btn" id="printBtn" aria-haspopup="true">Export</button>
       <button class="btn" id="undoBtn" disabled>Undo</button>
     </div>
 
@@ -1047,11 +1047,13 @@
     }
     const partsOf = (f) => Math.ceil(f.W / (viewElement.clientWidth || innerWidth)) * Math.ceil(f.H / (viewElement.clientHeight || innerHeight));
 
-    // the status bar while the PDF is built
-    function status(text, fraction) {
+    // the status screen while the PDF is built: a solid screen over the map (it jumps about while it is
+    // captured), with the percentage and the part count only
+    function status(part, parts) {
       $("statusBar").hidden = false; $("shield").hidden = false;
-      $("sbText").textContent = text;
-      $("sbFill").style.width = `${Math.round(Math.min(1, fraction) * 100)}%`;
+      const pct = parts ? Math.round((Math.min(part, parts) / parts) * 100) : 0;
+      $("sbText").textContent = parts ? `${pct}%  ·  Part ${Math.min(part, parts)} of ${parts}` : "Starting…";
+      $("sbFill").style.width = `${pct}%`;
     }
     function statusDone() { $("statusBar").hidden = true; $("shield").hidden = true; }
 
@@ -1093,7 +1095,7 @@
       const toggled = [ortho, layout, services, spots, ...base];
       const keepVisible = toggled.map((l) => l.visible);
       try {
-        status("Loading the PDF library", 0);
+        status(0, 0);
         const L = await pdfLib();
         const { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString, PDFOperator } = L;
 
@@ -1101,23 +1103,23 @@
         const f = frameOf(corners, (plan.scale * 96) / plan.dpi, plan.rotation);
         const passes = [{ name: "Imagery basemap", layers: base, transparent: false }, { name: "Drone ortho", layers: [ortho], transparent: true }]
           .filter((p) => p.layers.length);
-        const per = partsOf(f), total = per * passes.length;
+        const total = partsOf(f) * passes.length + 1;   // every capture, plus writing the file
         let done = 0;
         const shots = {};
+        status(0, total);
         for (const p of passes) {
           toggled.forEach((l) => { l.visible = p.layers.includes(l); });
-          let part = 0;
-          shots[p.name] = await stitch(f, p.transparent, () => status(`${p.name}: part ${++part} of ${per}`, done++ / total));
+          shots[p.name] = await stitch(f, p.transparent, () => status(++done, total));
         }
 
         // vectors: the features themselves
-        status("Reading tents and festival features", 1);
+        status(total - 1, total);
         const q = { where: "1=1", outFields: ["*"], returnGeometry: true, outSpatialReference: sr };
         const tents = $("pdfTents").checked ? (await spots.queryFeatures(q)).features : [];
         const areas = $("pdfFeat").checked && refOk.layout ? (await layout.queryFeatures(q)).features : [];
         const points = $("pdfFeat").checked && refOk.services ? (await services.queryFeatures(q)).features : [];
 
-        status("Writing the PDF", 1);
+        status(total, total);
         const doc = await PDFDocument.create();
         const title = $("pdfTitle").value.trim(), sub = $("pdfSub").value.trim();
         doc.setTitle(`${title || "Festival plan"} - ${plan.paperName}`);
