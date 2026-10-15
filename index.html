@@ -202,7 +202,7 @@
     <div class="hint" id="hint"></div>
 
     <div class="actions" id="actions">
-      <button class="btn primary" id="addBtn" aria-haspopup="true">+ Add tent</button>
+      <button class="btn primary" id="addBtn" aria-haspopup="true">+ Add</button>
       <button class="btn" id="listBtn">Spot list</button>
       <button class="btn" id="measureBtn" aria-pressed="false">Measure</button>
       <button class="btn" id="printBtn" aria-haspopup="true">Print</button>
@@ -227,6 +227,19 @@
         <input id="cd" type="number" min="1" step="1" value="20" aria-label="Custom depth in feet" /> ft
         <button class="btn" id="customGo">Add</button>
       </div>
+      <div id="featMenu" hidden style="display:grid;gap:8px">
+        <h3>Festival feature</h3>
+        <div class="custom"><select id="ptKind" aria-label="Kind of point"></select><button class="btn" id="ptGo">Place a point</button></div>
+        <div class="custom"><select id="arKind" aria-label="Kind of area"></select><button class="btn" id="arGo">Draw an area</button></div>
+      </div>
+    </div>
+
+    <!-- placing a festival point, drawing an area, or moving a point; nothing saved until Save -->
+    <div class="workbar" id="refbar" hidden>
+      <div class="what"><b id="rbTitle"></b><span id="rbText"></span></div>
+      <button class="btn" id="rbBack">Undo corner</button>
+      <button class="btn dark" id="rbOk">Save</button>
+      <button class="btn" id="rbCancel">Cancel</button>
     </div>
 
     <div class="workbar" id="workbar" hidden>
@@ -269,7 +282,25 @@
           <dt>Position</dt><dd id="rPos"></dd>
           <dt>Notes</dt><dd id="rNotes"></dd>
         </dl>
-        <p class="msg">Festival features are added and changed in the ArcGIS web map, not on this page.</p>
+        <div class="msg" id="rMsg"></div>
+      </div>
+      <div class="foot" id="refFoot" hidden>
+        <button class="btn primary" id="rEdit">Edit details</button>
+        <button class="btn" id="rMove">Move</button>
+      </div>
+
+      <!-- a festival feature, editing -->
+      <div class="body" id="fixPane" hidden>
+        <div class="field"><label for="xName">Name</label><input id="xName" maxlength="120" placeholder="For example Scène '76 or Restroom block A" /></div>
+        <div class="field"><label for="xKind">Kind</label><select id="xKind"></select></div>
+        <div class="field"><label for="xPos">Position</label><select id="xPos"></select></div>
+        <div class="field"><label for="xNotes">Notes</label><textarea id="xNotes" maxlength="500"></textarea></div>
+        <div class="msg" id="xMsg"></div>
+      </div>
+      <div class="foot" id="fixFoot" hidden>
+        <button class="btn primary" id="xSave">Save</button>
+        <button class="btn" id="xCancel">Cancel</button>
+        <button class="btn danger" id="xDel">Delete</button>
       </div>
 
       <!-- a tent, editing -->
@@ -499,14 +530,7 @@
 
     // ---- the sheet: one place for a tent, its edit form and the spot list ----------------
     const sheet = $("sheet");
-    const panes = ["viewPane", "viewFoot", "editPane", "editFoot", "listPane", "listFoot", "refPane"];
-    function showRef(a) {
-      current = null; draw(null);
-      $("rKind").textContent = a.kind || "-";
-      $("rPos").textContent = a.position || "-";
-      $("rNotes").textContent = a.notes || "-";
-      openSheet("ref", a.name || a.kind || "Festival feature");
-    }
+    const panes = ["viewPane", "viewFoot", "editPane", "editFoot", "listPane", "listFoot", "refPane", "refFoot", "fixPane", "fixFoot"];
     function openSheet(which, title) {
       panes.forEach((p) => { $(p).hidden = !p.startsWith(which); });
       $("sTitle").textContent = title;
@@ -514,7 +538,7 @@
       padForSheet();
     }
     function closeSheet() {
-      sheet.hidden = true; current = null; if (!work) draw(null); padForSheet();
+      sheet.hidden = true; current = null; currentRef = null; if (!work) draw(null); padForSheet();
     }
     function padForSheet() {
       const phone = innerWidth <= 640;
@@ -677,12 +701,176 @@
         } else if (e.kind === "delete") {
           const res = await apply({ addFeatures: [new Graphic({ geometry: e.geometry, attributes: e.attrs })] });
           await select(res.objectId);
+        } else if (e.kind === "refAdd") {
+          await applyTo(e.layer, { deleteFeatures: [{ objectId: e.oid }] });
+          if (currentRef?.oid === e.oid && currentRef.layer === e.layer) closeSheet();
+        } else if (e.kind === "refUpdate") {
+          await applyTo(e.layer, { updateFeatures: [new Graphic({ attributes: { [e.layer.objectIdField]: e.oid, ...e.before.attrs }, geometry: e.before.geometry })] });
+          if (currentRef?.oid === e.oid && currentRef.layer === e.layer) await showRef(e.layer, e.oid);
+        } else if (e.kind === "refDelete") {
+          const res = await applyTo(e.layer, { addFeatures: [new Graphic({ geometry: e.geometry, attributes: e.attrs })] });
+          await showRef(e.layer, res.objectId);
         }
         setHint("Undone.");
         setTimeout(() => setHint(""), 1800);
       } catch (err) { setHint("Could not undo: " + (err.message || err)); }
     }
     $("undoBtn").addEventListener("click", undoLast);
+
+    // ---- festival features: points and areas the tents work around --------------------------
+    // Anyone with this page can add, change and delete them, the same as tents.
+    async function applyTo(layer, edits) {
+      const r = await layer.applyEdits(edits);
+      const res = [...(r.addFeatureResults || []), ...(r.updateFeatureResults || []), ...(r.deleteFeatureResults || [])][0];
+      if (res?.error) throw new Error(res.error.message);
+      return res;
+    }
+    const REF_FIELDS = ["name", "kind", "position", "notes"];
+    const domainOf = (layer, field) => layer.fields?.find((f) => f.name === field)?.domain?.codedValues?.map((c) => c.code) || [];
+    const fill = (sel, values) => { sel.replaceChildren(); values.forEach((v) => sel.add(new Option(v, v))); };
+    if (refOk.services) fill($("ptKind"), domainOf(services, "kind"));
+    if (refOk.layout) fill($("arKind"), domainOf(layout, "kind"));
+    $("featMenu").hidden = !(refOk.services || refOk.layout);
+    $("ptGo").parentElement.hidden = !refOk.services;
+    $("arGo").parentElement.hidden = !refOk.layout;
+
+    let currentRef = null;   // { layer, oid, geometry, attrs }
+    let refWork = null;      // { mode: "point" | "area" | "move", layer, kind, geometry?, verts? }
+    const refDraft = new Graphic();
+    let vertGs = [];
+    viewElement.graphics.add(refDraft);
+
+    async function showRef(layer, oid, message = "") {
+      const fs = await layer.queryFeatures({ objectIds: [oid], outFields: ["*"], returnGeometry: true, outSpatialReference: sr });
+      const f = fs.features[0];
+      if (!f) return;
+      current = null; draw(null);
+      currentRef = { layer, oid, geometry: f.geometry, attrs: f.attributes };
+      const a = f.attributes;
+      $("rKind").textContent = a.kind || "-";
+      $("rPos").textContent = a.position || "-";
+      $("rNotes").textContent = a.notes || "-";
+      $("rMsg").textContent = message;
+      $("rMove").hidden = layer !== services;   // areas are redrawn rather than moved
+      openSheet("ref", a.name || a.kind || "Festival feature");
+    }
+    function showFix(message = "") {
+      const { layer, attrs: a } = currentRef;
+      $("xName").value = a.name || "";
+      fill($("xKind"), domainOf(layer, "kind")); $("xKind").value = a.kind || "";
+      fill($("xPos"), domainOf(layer, "position")); $("xPos").value = a.position || "";
+      $("xNotes").value = a.notes || "";
+      $("xMsg").textContent = message; $("xMsg").className = "msg";
+      xDisarm();
+      openSheet("fix", a.name ? `Edit ${a.name}` : `Edit ${(a.kind || "feature").toLowerCase()}`);
+      if (!a.name) $("xName").focus();
+    }
+    $("rEdit").addEventListener("click", () => showFix());
+    $("xCancel").addEventListener("click", () => showRef(currentRef.layer, currentRef.oid));
+    $("xSave").addEventListener("click", async () => {
+      if (!currentRef) return;
+      const { layer, oid, attrs, geometry } = currentRef;
+      const fields = { name: $("xName").value.trim() || null, kind: $("xKind").value, position: $("xPos").value,
+        notes: $("xNotes").value.trim() || null };
+      try {
+        await applyTo(layer, { updateFeatures: [new Graphic({ attributes: { [layer.objectIdField]: oid, ...fields } })] });
+        remember({ kind: "refUpdate", layer, oid, before: { attrs: Object.fromEntries(REF_FIELDS.map((k) => [k, attrs[k] ?? null])), geometry } },
+          `Saved ${fields.name || fields.kind}`);
+        await showRef(layer, oid, "Saved.");
+      } catch (e) { $("xMsg").textContent = "Not saved: " + (e.message || e); $("xMsg").className = "msg err"; }
+    });
+    let xArmedAt = 0;
+    function xDisarm() { xArmedAt = 0; $("xDel").classList.remove("armed"); $("xDel").textContent = "Delete"; }
+    $("xDel").addEventListener("click", async () => {
+      if (!currentRef) return;
+      if (Date.now() - xArmedAt > 4000) { xArmedAt = Date.now(); $("xDel").classList.add("armed"); $("xDel").textContent = "Tap again to delete"; return; }
+      const { layer, oid, attrs, geometry } = currentRef;
+      try {
+        await applyTo(layer, { deleteFeatures: [{ objectId: oid }] });
+        remember({ kind: "refDelete", layer, geometry, attrs: Object.fromEntries(REF_FIELDS.map((k) => [k, attrs[k] ?? null])) },
+          `Deleted ${attrs.name || attrs.kind}`);
+        closeSheet();
+      } catch (e) { xDisarm(); $("xMsg").textContent = "Not deleted: " + (e.message || e); $("xMsg").className = "msg err"; }
+    });
+
+    // drawing: a point is one tap; an area is a tap at each corner
+    function drawRef() {
+      viewElement.graphics.removeMany(vertGs); vertGs = [];
+      if (!refWork) { refDraft.geometry = null; return; }
+      const yellow = [...YELLOW, 1];
+      if (refWork.mode === "area") {
+        const v = refWork.verts;
+        refDraft.geometry = v.length >= 3 ? new Polygon({ rings: [[...v, v[0]]], spatialReference: sr }) : null;
+        refDraft.symbol = { type: "simple-fill", color: [...YELLOW, 0.3], outline: { color: yellow, width: 2.5, style: "dash" } };
+        vertGs = v.map(([x, y]) => new Graphic({ geometry: new Point({ x, y, spatialReference: sr }),
+          symbol: { type: "simple-marker", style: "square", size: 10, color: yellow, outline: { color: [0, 0, 0, 1], width: 1.5 } } }));
+        viewElement.graphics.addMany(vertGs);
+      } else {
+        refDraft.geometry = refWork.geometry || null;
+        refDraft.symbol = { type: "simple-marker", style: "circle", size: 16, color: yellow, outline: { color: [0, 0, 0, 1], width: 2 } };
+      }
+    }
+    function showRefWork(text) {
+      const w = refWork;
+      $("rbTitle").textContent = w.mode === "move" ? `Moving ${currentRef?.attrs.name || currentRef?.attrs.kind || "point"}`
+        : w.mode === "point" ? `New ${w.kind.toLowerCase()} point` : `New ${w.kind.toLowerCase()} area, ${w.verts.length} corners`;
+      $("rbText").textContent = text || (w.mode === "area" ? "Tap each corner in order. Save when the outline is right."
+        : "Tap where it goes. Tap again to change the spot.");
+      $("rbBack").hidden = w.mode !== "area";
+      $("rbBack").disabled = w.mode === "area" && !w.verts.length;
+      $("rbOk").disabled = w.mode === "area" ? w.verts.length < 3 : !w.geometry;
+      $("actions").hidden = true; $("refbar").hidden = false; menu.hidden = true;
+      drawRef();
+    }
+    function endRefWork() { refWork = null; drawRef(); $("refbar").hidden = true; $("actions").hidden = false; }
+    function startRef(mode, layer, kind) {
+      if (work) $("wCancel").click();
+      if (measuring) setMeasuring(false);
+      if (mode !== "move") closeSheet(); else sheet.hidden = true;
+      refWork = { mode, layer, kind, verts: [], geometry: null };
+      showRefWork();
+    }
+    $("ptGo").addEventListener("click", () => startRef("point", services, $("ptKind").value));
+    $("arGo").addEventListener("click", () => startRef("area", layout, $("arKind").value));
+    $("rMove").addEventListener("click", () => { if (currentRef) startRef("move", currentRef.layer, currentRef.attrs.kind); });
+    $("rbBack").addEventListener("click", () => { if (refWork?.verts.length) { refWork.verts.pop(); showRefWork(); } });
+    $("rbCancel").addEventListener("click", () => {
+      const moving = refWork?.mode === "move"; endRefWork();
+      if (moving && currentRef) showRef(currentRef.layer, currentRef.oid);
+    });
+    function refTap(p) {
+      if (refWork.mode === "area") refWork.verts.push([p.x, p.y]);
+      else refWork.geometry = new Point({ x: p.x, y: p.y, spatialReference: sr });
+      showRefWork();
+    }
+    $("rbOk").addEventListener("click", async () => {
+      const w = refWork; if (!w) return;
+      $("rbOk").disabled = true;
+      try {
+        if (w.mode === "move") {
+          const { layer, oid, attrs, geometry } = currentRef;
+          await applyTo(layer, { updateFeatures: [new Graphic({ attributes: { [layer.objectIdField]: oid }, geometry: w.geometry })] });
+          remember({ kind: "refUpdate", layer, oid, before: { attrs: Object.fromEntries(REF_FIELDS.map((k) => [k, attrs[k] ?? null])), geometry } },
+            `Moved ${attrs.name || attrs.kind}`);
+          endRefWork();
+          await showRef(layer, oid, "Moved.");
+          return;
+        }
+        let geometry = w.geometry;
+        if (w.mode === "area") {
+          const ring = [...w.verts, w.verts[0]];
+          let twice = 0;   // ArcGIS wants an outer ring clockwise: a positive shoelace sum here means clockwise
+          for (let i = 0; i < ring.length - 1; i++) twice += (ring[i + 1][0] - ring[i][0]) * (ring[i + 1][1] + ring[i][1]);
+          geometry = new Polygon({ rings: [twice > 0 ? ring : ring.slice().reverse()], spatialReference: sr });
+        }
+        const attrs = { kind: w.kind, position: "Approximate" };
+        const res = await applyTo(w.layer, { addFeatures: [new Graphic({ geometry, attributes: attrs })] });
+        remember({ kind: "refAdd", layer: w.layer, oid: res.objectId }, `Added ${w.kind.toLowerCase()}`);
+        endRefWork();
+        await showRef(w.layer, res.objectId);
+        showFix("Give it a name, and set Position to Traced from the ortho if you drew it over what the ortho shows.");
+      } catch (e) { showRefWork("Not saved: " + (e.message || e)); }
+    });
 
     // ---- measuring: while it is on, taps draw the measurement instead of picking tents ----
     const measureEl = $("measure");
@@ -824,6 +1012,7 @@
       const w = s.value === "Custom" ? Number($("cw").value) : s.w, d = s.value === "Custom" ? Number($("cd").value) : s.d;
       if (!(w > 0 && d > 0)) { setHint("Give the custom tent a width and depth in feet."); return; }
       menu.hidden = true;
+      if (refWork) endRefWork();
       closeSheet();
       const c = viewElement.center ?? viewElement.extent.center;  // the new tent starts in the middle of the screen
       work = { kind: "new", size: s.value, geometry: rect(c.x, c.y, w, d, lastTurn) };
@@ -907,6 +1096,7 @@
     viewElement.addEventListener("arcgisViewClick", async (event) => {
       const p = event.detail.mapPoint;
       if (!p || measuring) return;
+      if (refWork) { refTap(p); return; }
       if (work) {
         const x = describe(work.geometry);
         work.geometry = rect(p.x, p.y, x.w, x.d, x.deg); work.armed = false;
@@ -918,7 +1108,7 @@
       const g = found(spots);
       if (g) { await select(g.attributes[OID]); return; }
       const ref = found(services) || found(layout);   // a tent wins over what lies under it
-      if (ref) { showRef(ref.attributes); return; }
+      if (ref) { await showRef(ref.layer, ref.attributes[ref.layer.objectIdField]); return; }
       if (!sheet.hidden && (!$("viewPane").hidden || !$("refPane").hidden)) closeSheet();
     });
 
@@ -1052,6 +1242,7 @@
       if (!menu.hidden) { menu.hidden = true; return; }
       if (!printMenu.hidden) { printMenu.hidden = true; return; }
       if (measuring) { setMeasuring(false); return; }
+      if (refWork) { $("rbCancel").click(); return; }
       if (work) { $("wCancel").click(); return; }
       if (!sheet.hidden) closeSheet();
     });
