@@ -100,6 +100,7 @@
     .rowctl input { width: 64px; padding: 7px 8px; border: 1px solid var(--black); border-radius: var(--radius); background: var(--paper); }
 
     /* size menu */
+    #printMenu { max-height: calc(100% - 110px); overflow: auto; }
     .menu { position: absolute; z-index: 6; left: 50%; transform: translateX(-50%);
       bottom: calc(80px + env(safe-area-inset-bottom, 0px)); background: var(--paper); border-radius: 10px;
       box-shadow: 0 10px 30px rgba(0,0,0,.3); padding: 12px; width: min(340px, calc(100% - 32px)); display: grid; gap: 8px; }
@@ -248,6 +249,17 @@
         <select id="printScale"><option value="0" selected>fill the paper</option><option value="1000">1:1,000</option><option value="1500">1:1,500</option><option value="2000">1:2,000</option><option value="3000">1:3,000</option></select></label>
       <div class="msg" id="printPlan"></div>
       <label class="custom"><input type="checkbox" id="printList" checked style="width:auto" /> Add the spot list on the next page</label>
+      <h3>Download PDF, with layers</h3>
+      <label class="custom" for="pdfTitle">Title <input id="pdfTitle" value="Girard Park" style="width:auto;flex:1" /></label>
+      <label class="custom" for="pdfSub">Subtitle <input id="pdfSub" value="Oct 9, 2026 - Drone Ortho" style="width:auto;flex:1" /></label>
+      <div class="custom">
+        <label><input type="checkbox" id="pdfTents" checked style="width:auto" /> Tent spots</label>
+        <label><input type="checkbox" id="pdfFeat" checked style="width:auto" /> Festival features</label>
+        <label><input type="checkbox" id="pdfLegend" checked style="width:auto" /> Legend</label>
+      </div>
+      <label class="custom" for="pdfDpi">Quality
+        <select id="pdfDpi"><option value="150" selected>Standard, 150 dpi</option><option value="220">High, 220 dpi</option></select></label>
+      <button class="btn primary" id="pdfGo">Download PDF</button>
     </div>
 
     <div class="menu" id="menu" hidden>
@@ -972,7 +984,7 @@
           if (grow !== 1 && l.renderer) l.renderer = enlarged(l.renderer, grow);
         });
         let dataUrl;
-        if (wholePark) dataUrl = await stitchPark(plan.scale * 96 / plan.dpi, rotation);
+        if (wholePark) dataUrl = (await stitchPark(plan.scale * 96 / plan.dpi, rotation)).dataUrl;
         else { await settle(); dataUrl = (await shoot({ format: "png" })).dataUrl; }
         const pic = await loadImg(dataUrl);
 
@@ -1014,7 +1026,7 @@
 
     // what a whole-park print will be: the paper, the ground scale (chosen, or the one that fills the paper)
     // and the dots per inch the picture is built at (150, less where the picture would get too big for the browser)
-    function printPlan(rotation) {
+    function printPlan(rotation, maxDpi = 150) {
       const [long, short] = $("printPaper").value.split("x").map(Number);
       const paperName = $("printPaper").selectedOptions[0].textContent;
       const t = (rotation * Math.PI) / 180, right = [Math.cos(t), Math.sin(t)], down = [Math.sin(t), -Math.cos(t)];
@@ -1028,8 +1040,8 @@
       const fit = Math.ceil((Math.max(bw / (mapW * 0.0254), bh / (mapH * 0.0254)) * 1.02) / 10) * 10;
       const scale = Number($("printScale").value) || fit;
       const longIn = Math.max(bw, bh) / (scale * 0.0254);
-      const dpi = Math.max(72, Math.min(150, Math.floor(11000 / ((devicePixelRatio || 1) * longIn))));
-      return { long, short, paperName, scale, dpi, fit, longIn };
+      const dpi = Math.max(72, Math.min(maxDpi, Math.floor(14000 / ((devicePixelRatio || 1) * longIn))));
+      return { long, short, paperName, scale, dpi, fit, longIn, pw, ph };
     }
     function showPlan() {
       const p = printPlan(viewElement.rotation ?? viewElement.view?.rotation ?? 0);
@@ -1054,7 +1066,7 @@
 
     // the whole park at a set scale: screen-sized pictures taken across the park, joined into one,
     // in the map's current turn, cropped to the park's rectangle
-    async function stitchPark(groundScale, rotation) {
+    async function stitchPark(groundScale, rotation, { transparent = false, label = "Preparing the print" } = {}) {
       viewElement.constraints = { rotationEnabled: true, snapToZoom: false };
       const vw = viewElement.clientWidth || innerWidth, vh = viewElement.clientHeight || innerHeight;
       const cx = PARK_FRAME.reduce((s, p) => s + p[0], 0) / 4, cy = PARK_FRAME.reduce((s, p) => s + p[1], 0) / 4;
@@ -1071,7 +1083,7 @@
       let canvas = null, ctx = null, k = 1, n = 0;
       for (let j = 0; j < ny; j++) {
         for (let i = 0; i < nx; i++) {
-          blocker.textContent = `Preparing the print, part ${++n} of ${nx * ny}…`;
+          blocker.textContent = `${label}, part ${++n} of ${nx * ny}…`;
           const pu = u0 + i * vw + vw / 2, pv = v0 + j * vh + vh / 2;
           const center = new Point({ x: cx + (pu * right[0] + pv * down[0]) * res, y: cy + (pu * right[1] + pv * down[1]) * res, spatialReference: sr });
           await viewElement.goTo({ center, scale, rotation }, { animate: false });
@@ -1082,12 +1094,183 @@
             canvas = document.createElement("canvas");
             canvas.width = Math.ceil(W * k); canvas.height = Math.ceil(H * k);
             ctx = canvas.getContext("2d");
-            ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            if (!transparent) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
           }
           ctx.drawImage(img, i * vw * k, j * vh * k, vw * k, vh * k);
         }
       }
-      return canvas.toDataURL("image/jpeg", 0.92);
+      // a layer over others keeps its see-through parts, so it goes out as PNG; an opaque one as JPEG
+      return { dataUrl: transparent ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.92), cssW: W, cssH: H };
+    }
+    // ---- download a layered PDF at the paper size ---------------------------------------------
+    // Each map layer is captured on its own and placed in its own PDF layer (optional content), so the
+    // basemap, ortho, festival features and tents can be switched on and off in Acrobat or Bluebeam.
+    // Title, legend, scale bar and north arrow are drawn as text and lines, each in its own layer too.
+    function loadScript(src) {
+      return new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s); });
+    }
+    async function pdfLib() {
+      if (window.PDFLib) return window.PDFLib;
+      try { await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"); }
+      catch { await loadScript("https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"); }
+      if (!window.PDFLib) throw new Error("the PDF library did not load");
+      return window.PDFLib;
+    }
+    $("pdfGo").addEventListener("click", () => makePdf());
+
+    async function makePdf() {
+      if (printing) return;
+      printing = true;
+      printMenu.hidden = true;
+      const keep = current;
+      if (work) $("wCancel").click();
+      if (refWork) $("rbCancel").click();
+      if (measuring) setMeasuring(false);
+      closeSheet();
+      const before = viewElement.viewpoint?.clone();
+      const keepConstraints = viewElement.constraints;
+      const labelled = [spots, layout, services];
+      const keepLabels = labelled.map((l) => l.labelingInfo);
+      const keepRenderers = labelled.map((l) => l.renderer);
+      const base = viewElement.map.basemap?.baseLayers?.toArray?.() || [];
+      const all5 = [ortho, layout, services, spots, ...base];
+      const keepVisible = all5.map((l) => l.visible);
+      const rotation = viewElement.rotation ?? viewElement.view?.rotation ?? 0;
+      blocker.textContent = "Building the PDF…"; blocker.hidden = false;
+      try {
+        const L = await pdfLib();
+        const plan = printPlan(rotation, Number($("pdfDpi").value) || 150);
+        const grow = plan.dpi / 96;
+        labelled.forEach((l) => {
+          if (l.labelingInfo) l.labelingInfo = l.labelingInfo.map((c) => {
+            const n = c.clone(); n.minScale = 0;
+            if (n.symbol) { n.symbol.font.size *= grow; n.symbol.haloSize = (n.symbol.haloSize || 0) * grow; }
+            return n;
+          });
+          if (l.renderer) l.renderer = enlarged(l.renderer, grow);
+        });
+        const renderScale = plan.scale * 96 / plan.dpi;
+        const show = (list) => all5.forEach((l) => { l.visible = list.includes(l); });
+        const passes = [
+          { name: "Imagery basemap", layers: base, transparent: false },
+          { name: "Drone ortho", layers: [ortho], transparent: true },
+          ...($("pdfFeat").checked && refOk.layout ? [{ name: "Festival features", layers: [layout, services], transparent: true }] : []),
+          ...($("pdfTents").checked ? [{ name: "Tent spots", layers: [spots], transparent: true }] : []),
+        ].filter((p) => p.layers.length);
+        const shots = [];
+        for (const p of passes) {
+          show(p.layers);
+          shots.push({ ...p, ...(await stitchPark(renderScale, rotation, { transparent: p.transparent, label: `Building the PDF: ${p.name.toLowerCase()}` })) });
+        }
+
+        blocker.textContent = "Writing the PDF…";
+        const { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString, PDFOperator, PDFDict } = L;
+        const doc = await PDFDocument.create();
+        doc.setTitle(`${$("pdfTitle").value} - ${plan.paperName}`);
+        const sizeA = shots[0].cssW >= shots[0].cssH;
+        const PW = (sizeA ? plan.long : plan.short) * 72, PH = (sizeA ? plan.short : plan.long) * 72;
+        const page = doc.addPage([PW, PH]);
+        const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
+        const long = Math.max(plan.long, plan.short);
+        const T = Math.round(10 + long * 0.95), S = Math.round(T * 0.45), M = 36;
+        const topBand = T + S + 24, bottomBand = Math.max(54, T * 1.6);
+        const area = { x: M, y: M + bottomBand, w: PW - 2 * M, h: PH - 2 * M - topBand - bottomBand };
+        // the map at true scale where it fits; shrunk to fit otherwise, and the scale bar follows
+        let iw = (shots[0].cssW / plan.dpi) * 72, ih = (shots[0].cssH / plan.dpi) * 72;
+        const shrink = Math.min(1, area.w / iw, area.h / ih);
+        iw *= shrink; ih *= shrink;
+        const actual = plan.scale / shrink;
+        const ix = area.x + (area.w - iw) / 2, iy = area.y + (area.h - ih) / 2;
+
+        // PDF layers: one optional-content group per name, wrapped round what it draws
+        const ocgRefs = [];
+        const props = doc.context.obj({});
+        let tagN = 0;
+        const BDC = (L.PDFOperatorNames && L.PDFOperatorNames.BeginMarkedContentSequence) || "BDC";
+        const EMC = (L.PDFOperatorNames && L.PDFOperatorNames.EndMarkedContent) || "EMC";
+        function inLayer(name, draw) {
+          const ref = doc.context.register(doc.context.obj({ Type: "OCG", Name: PDFHexString.fromText(name) }));
+          ocgRefs.push(ref);
+          const tag = `oc${++tagN}`;
+          props.set(PDFName.of(tag), ref);
+          page.pushOperators(PDFOperator.of(BDC, [PDFName.of("OC"), PDFName.of(tag)]));
+          draw();
+          page.pushOperators(PDFOperator.of(EMC));
+        }
+        for (const s of shots) {
+          const bytes = await (await fetch(s.dataUrl)).arrayBuffer();
+          const img = s.transparent ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+          inLayer(s.name, () => page.drawImage(img, { x: ix, y: iy, width: iw, height: ih }));
+        }
+        const black = rgb(0, 0, 0), grey = rgb(0.4, 0.4, 0.4);
+        inLayer("Map frame", () => page.drawRectangle({ x: ix, y: iy, width: iw, height: ih, borderColor: black, borderWidth: 0.75 }));
+        inLayer("Title", () => {
+          page.drawText($("pdfTitle").value || "", { x: M, y: PH - M - T, size: T, font: bold, color: black });
+          page.drawText($("pdfSub").value || "", { x: M, y: PH - M - T - S - 8, size: S, font, color: grey });
+          page.drawText("Basemap: Esri World Imagery. Drone ortho flown 2026-10-09.", { x: ix, y: iy - 9, size: 6.5, font, color: grey });
+        });
+        if ($("pdfLegend").checked && $("pdfTents").checked) {
+          await loadAll();
+          const counts = Object.fromEntries(STATUSES.map((s) => [s.value, 0]));
+          let booked = 0;
+          all.forEach((a) => { const st = a.status || "Open"; counts[st] = (counts[st] || 0) + 1; if (st === "Rented") booked += a.fee || 0; });
+          inLayer("Legend", () => {
+            let x = M; const y = M + bottomBand * 0.45, sw = S * 0.9;
+            STATUSES.forEach((s) => {
+              const [r, g, b] = rgba(s.color, 1).map((v) => v / 255);
+              page.drawRectangle({ x, y, width: sw, height: sw, color: rgb(r, g, b), opacity: 0.6, borderColor: rgb(r, g, b), borderWidth: 1.5 });
+              const label = `${s.value} ${counts[s.value]}`;
+              page.drawText(label, { x: x + sw + 5, y: y + 1, size: S * 0.85, font, color: black });
+              x += sw + 5 + font.widthOfTextAtSize(label, S * 0.85) + S * 1.6;
+            });
+            page.drawText(`Rented fees ${money(booked)}`, { x, y: y + 1, size: S * 0.85, font: bold, color: black });
+          });
+        }
+        inLayer("Scale bar", () => {
+          const ftPerPt = actual / 12 / 72;
+          const target = area.w * 0.25 * ftPerPt;
+          const nice = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000].filter((v) => v <= target).pop() || 10;
+          const len = nice / ftPerPt, h = Math.max(4, T * 0.15), x0 = PW / 2 - len / 2, y0 = M + bottomBand * 0.45;
+          for (let i = 0; i < 4; i++) {
+            page.drawRectangle({ x: x0 + (i * len) / 4, y: y0, width: len / 4, height: h, color: i % 2 ? rgb(1, 1, 1) : black, borderColor: black, borderWidth: 0.75 });
+          }
+          const ls = S * 0.75;
+          [[0, "0"], [len / 2, String(nice / 2)], [len, `${nice} ft`]].forEach(([dx, t]) => {
+            page.drawText(t, { x: x0 + dx - font.widthOfTextAtSize(t, ls) / 2, y: y0 + h + 4, size: ls, font, color: black });
+          });
+          const sc = `Scale 1:${Math.round(actual).toLocaleString()} on the ground`;
+          page.drawText(sc, { x: PW / 2 - font.widthOfTextAtSize(sc, ls) / 2, y: y0 - ls - 4, size: ls, font, color: grey });
+        });
+        inLayer("North arrow", () => {
+          // north points this many degrees clockwise from the top of the page, as the map is turned
+          const R = T * 0.6, cx = PW - M - R * 1.6, cy = M + bottomBand * 0.5, t = (rotation * Math.PI) / 180;
+          const rot = ([x, y]) => [x * Math.cos(t) - y * Math.sin(t), x * Math.sin(t) + y * Math.cos(t)];
+          const p = [[0, -R], [R * 0.55, R * 0.75], [0, R * 0.4], [-R * 0.55, R * 0.75]].map(rot);
+          page.drawSvgPath(`M ${p[0][0]} ${p[0][1]} L ${p[1][0]} ${p[1][1]} L ${p[2][0]} ${p[2][1]} L ${p[3][0]} ${p[3][1]} Z`, { x: cx, y: cy, color: black });
+          const [nx, ny] = rot([0, -R * 1.45]);
+          page.drawText("N", { x: cx + nx - S * 0.3, y: cy - ny - S * 0.35, size: S * 0.9, font: bold, color: black });
+        });
+        page.node.Resources().set(PDFName.of("Properties"), props);
+        doc.catalog.set(PDFName.of("OCProperties"), doc.context.obj({ OCGs: ocgRefs, D: { Order: ocgRefs, ON: ocgRefs, OFF: [] } }));
+        const bytes = await doc.save();
+        const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+        const a = document.createElement("a");
+        a.href = url; a.download = `${($("pdfTitle").value || "Festival plan").replace(/[\\/:*?"<>|]/g, "")} ${plan.paperName.split(",")[0]}.pdf`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        setHint(`PDF downloaded: ${plan.paperName}, 1:${Math.round(actual).toLocaleString()}, ${(bytes.length / 1e6).toFixed(1)} MB, ${ocgRefs.length} layers.`);
+        setTimeout(() => setHint(""), 6000);
+      } catch (e) {
+        setHint("The PDF could not be made: " + (e.message || e));
+      } finally {
+        all5.forEach((l, i) => { l.visible = keepVisible[i]; });
+        labelled.forEach((l, i) => { l.labelingInfo = keepLabels[i]; l.renderer = keepRenderers[i]; });
+        viewElement.constraints = keepConstraints;
+        if (before) viewElement.goTo(before, { animate: false }).catch(() => {});
+        blocker.hidden = true;
+        printing = false;
+        if (keep) select(keep.oid);
+      }
     }
     $("toastUndo").addEventListener("click", undoLast);
     let toastTimer = null;
