@@ -1109,12 +1109,22 @@
     function loadScript(src) {
       return new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s); });
     }
+    // pdf-lib as a module: the classic script build registered itself with the ArcGIS loader's global
+    // define() instead of setting window.PDFLib, so it never appeared
+    let pdfLibModule = null;
     async function pdfLib() {
-      if (window.PDFLib) return window.PDFLib;
-      try { await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"); }
-      catch { await loadScript("https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"); }
-      if (!window.PDFLib) throw new Error("the PDF library did not load");
-      return window.PDFLib;
+      if (pdfLibModule) return pdfLibModule;
+      const sources = ["https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.esm.min.js",
+                       "https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.esm.min.js"];
+      for (const src of sources) {
+        try { pdfLibModule = await import(src); if (pdfLibModule.PDFDocument) return pdfLibModule; } catch { /* next source */ }
+      }
+      // last resort: the classic build, with the global define() hidden while it loads
+      const keepDefine = window.define;
+      try { window.define = undefined; await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"); }
+      finally { window.define = keepDefine; }
+      if (!window.PDFLib) throw new Error("the PDF library did not load; check the connection and try again");
+      return (pdfLibModule = window.PDFLib);
     }
     $("pdfGo").addEventListener("click", () => makePdf());
 
