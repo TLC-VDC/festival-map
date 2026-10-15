@@ -196,7 +196,6 @@
       <arcgis-home slot="top-left"></arcgis-home>
       <arcgis-locate slot="top-left"></arcgis-locate>
       <arcgis-compass slot="top-left"></arcgis-compass>
-      <button slot="top-left" class="mapbtn" id="turnMap" title="Turn the map to run along the park">Along park</button>
       <arcgis-distance-measurement-2d slot="top-right" unit="feet" id="measure" hidden></arcgis-distance-measurement-2d>
     </arcgis-map>
     <div class="hint" id="hint"></div>
@@ -434,22 +433,10 @@
     // two-finger twist on a phone, right-drag on a computer; the compass puts north back up
     viewElement.constraints = { geometry: park.clone().expand(1.5), minScale: 12000, rotationEnabled: true };
     try { document.querySelector("arcgis-home").viewpoint = viewElement.viewpoint.clone(); } catch { /* home falls back to its own default */ }
-    // the park runs about 31 degrees east of north (its long axis, measured on the ortho). "Along park" turns the map so it runs
-    // up a tall screen or across a wide one; pressed again it puts north back up.
-    const PARK_BEARING = 31;
-    const rotationOf = () => (viewElement.rotation ?? viewElement.view?.rotation ?? 0);
-    function syncTurnButton() {
-      const r = ((rotationOf() % 360) + 360) % 360;
-      $("turnMap").classList.toggle("on", r > 0.5 && r < 359.5);
-      $("turnMap").textContent = r > 0.5 && r < 359.5 ? "North up" : "Along park";
-    }
-    $("turnMap").addEventListener("click", () => {
-      const r = ((rotationOf() % 360) + 360) % 360;
-      const along = innerHeight >= innerWidth ? 360 - PARK_BEARING : 90 - PARK_BEARING;
-      const target = r > 0.5 && r < 359.5 ? 0 : along;
-      viewElement.goTo({ target: park, rotation: target }).catch(() => {}).finally(syncTurnButton);
-    });
-    reactiveUtils.watch(() => viewElement.rotation, syncTurnButton);
+    // the park's long rectangle in Web Mercator, measured on the ortho: about 2,720 by 1,115 ft,
+    // its long axis 30.9 degrees east of north. The whole-park print turns the map to it and crops to it.
+    const PARK_FRAME = [[-10243949.3, 3530008.0], [-10243457.7, 3530830.6], [-10243120.1, 3530628.8], [-10243611.8, 3529806.2]];
+    const PARK_BEARING = 30.9;
     const layerView = await viewElement.whenLayerView(spots);
     blocker.hidden = true;
     const OID = spots.objectIdField;
@@ -910,11 +897,39 @@
       if (measuring) setMeasuring(false);
       closeSheet();
       const before = viewElement.viewpoint?.clone();
+      const keepConstraints = viewElement.constraints;
+      const labelled = [spots, layout, services];
+      const keepLabels = labelled.map((l) => l.labelingInfo);
+      let northDeg = viewElement.rotation ?? viewElement.view?.rotation ?? 0;   // which way north points on the page
       try {
-        if (wholePark) await viewElement.goTo(park, { animate: false });
+        // labels at every scale for the print
+        labelled.forEach((l) => { if (l.labelingInfo) l.labelingInfo = l.labelingInfo.map((c) => { const n = c.clone(); n.minScale = 0; return n; }); });
+        let area = null, turned = false;
+        if (wholePark) {
+          // turn the map so the park lies along the screen's long side, fit the park itself, and crop to it
+          viewElement.constraints = { rotationEnabled: true };
+          const vw = viewElement.clientWidth || innerWidth, vh = viewElement.clientHeight || innerHeight;
+          turned = vh > vw;   // a tall screen: lay the park up it, then turn the picture for the landscape page
+          const [a, b, c] = PARK_FRAME;
+          const len = Math.hypot(b[0] - a[0], b[1] - a[1]), wid = Math.hypot(c[0] - b[0], c[1] - b[1]);
+          const cx = PARK_FRAME.reduce((s, p) => s + p[0], 0) / 4, cy = PARK_FRAME.reduce((s, p) => s + p[1], 0) / 4;
+          const res = Math.max(len / ((turned ? vh : vw) * 0.96), wid / ((turned ? vw : vh) * 0.96));
+          const rotation = turned ? 360 - PARK_BEARING : 90 - PARK_BEARING;
+          await viewElement.goTo({ center: new Point({ x: cx, y: cy, spatialReference: sr }), scale: res * 96 * 39.3701, rotation }, { animate: false });
+          await reactiveUtils.whenOnce(() => !viewElement.updating);
+          const pts = PARK_FRAME.map(([x, y]) => toScreen(new Point({ x, y, spatialReference: sr })));
+          const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+          const x0 = Math.max(0, Math.floor(Math.min(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys)));
+          area = { x: x0, y: y0, width: Math.min(vw, Math.ceil(Math.max(...xs))) - x0, height: Math.min(vh, Math.ceil(Math.max(...ys))) - y0 };
+          northDeg = turned ? rotation - 90 : rotation;
+        }
         await reactiveUtils.whenOnce(() => !viewElement.updating);
         const shoot = viewElement.takeScreenshot ? (o) => viewElement.takeScreenshot(o) : (o) => viewElement.view.takeScreenshot(o);
-        const shot = await shoot({ format: "png" });
+        const opts = { format: "png", ...(area ? { area } : {}) };
+        let shot;
+        try { shot = await shoot({ ...opts, width: Math.round((area ? area.width : viewElement.clientWidth || innerWidth) * 2) }); }
+        catch { shot = await shoot(opts); }
+        if (turned) shot = { dataUrl: await turnPicture(shot.dataUrl) };
         await loadAll();
         const counts = Object.fromEntries(STATUSES.map((s) => [s.value, 0]));
         let booked = 0;
@@ -939,6 +954,7 @@
   .k { display: inline-flex; align-items: center; gap: 6px; }
   .k i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .legend .fee { margin-left: auto; }
+  .north { display: inline-flex; align-items: center; gap: 2px; font-weight: 700; font-size: 10pt; }
   .map { width: 100%; max-height: 6.4in; object-fit: contain; display: block; border: 1px solid #ccc; }
   .note { font-size: 8.5pt; color: #666; margin-top: 4px; }
   table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 6px; }
@@ -949,7 +965,9 @@
   @media screen { body { padding: 16px; max-width: 11in; margin: 0 auto; } }
 </style></head><body>
   <div class="bar"><img src="${esc(logo)}" alt=""><span class="t">Girard Park - Festival Planning</span><span class="d">${esc(today)}</span></div>
-  <div class="legend">${legend}<span class="fee">Rented fees <b>${esc(money(booked))}</b></span></div>
+  <div class="legend">${legend}<span class="fee">Rented fees <b>${esc(money(booked))}</b></span>
+    <span class="north" title="North"><svg viewBox="0 0 24 24" width="22" height="22" style="transform:rotate(${Number(northDeg) || 0}deg)">
+      <path d="M12 2 L18 20 L12 16 L6 20 Z" fill="#000"/></svg>N</span></div>
   <img class="map" src="${shot.dataUrl}" alt="Map of the tent spots">
   <div class="note">Drone ortho flown 2026-10-09. Tent sizes are drawn true to scale.</div>
   ${$("printList").checked ? `<div class="list"><table><thead><tr><th>Spot</th><th>Size</th><th>Status</th><th>Renter</th><th>Fee</th><th>Notes</th></tr></thead>
@@ -960,9 +978,26 @@
       } catch (e) {
         tab.document.body.textContent = "The print could not be made: " + (e.message || e);
       } finally {
+        labelled.forEach((l, i) => { l.labelingInfo = keepLabels[i]; });
+        viewElement.constraints = keepConstraints;
         if (wholePark && before) viewElement.goTo(before, { animate: false }).catch(() => {});
         if (keep) select(keep.oid);
       }
+    }
+    // a quarter turn anticlockwise, so a park laid up a tall screen lies across the landscape page
+    function turnPicture(dataUrl) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const cv = document.createElement("canvas");
+          cv.width = img.height; cv.height = img.width;
+          const ctx = cv.getContext("2d");
+          ctx.translate(0, cv.height); ctx.rotate(-Math.PI / 2); ctx.drawImage(img, 0, 0);
+          resolve(cv.toDataURL("image/png"));
+        };
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
     }
     $("toastUndo").addEventListener("click", undoLast);
     let toastTimer = null;
