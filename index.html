@@ -14,7 +14,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" />
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <style id="printPage">@page { size: landscape; margin: 0.4in; }</style>
 
   <style>
     /* Layout: black brand bar, status chips as filter and legend, the map filling the rest,
@@ -162,6 +161,17 @@
       box-shadow: 0 6px 20px rgba(0,0,0,.3); max-width: calc(100% - 32px); font-size: 14px; }
     .toast button { background: transparent; color: var(--yellow); border: 0; font-weight: 700; cursor: pointer; padding: 6px 8px; }
 
+    .seg3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .seg3 button { border: 1px solid var(--grey-20); background: var(--paper); border-radius: var(--radius); padding: 8px 4px; min-height: 38px; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .seg3 button.on { background: var(--black); border-color: var(--black); color: var(--paper); }
+    .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 14px; }
+    .checks label { display: flex; gap: 6px; align-items: center; }
+    .shield { position: absolute; inset: 0; z-index: 9; background: rgba(0,0,0,.18); }
+    .statusbar { position: absolute; z-index: 10; left: 50%; top: 12px; transform: translateX(-50%); width: min(420px, calc(100% - 32px));
+      background: var(--black); color: var(--paper); border-radius: var(--radius); padding: 9px 12px 10px; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
+    .sb-text { font-size: 13px; margin-bottom: 6px; }
+    .sb-track { height: 6px; background: var(--grey-80); border-radius: 3px; overflow: hidden; }
+    .sb-fill { height: 100%; width: 0; background: var(--yellow); transition: width .2s; }
     .blocker { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; background: var(--paper);
       padding: 24px; text-align: center; color: var(--grey-60); }
     [hidden] { display: none !important; }
@@ -177,29 +187,6 @@
       .fees { margin-left: 4px; }
       .actions { gap: 4px; padding: 4px; }
       .actions .btn { padding: 8px 9px; font-size: 14px; }
-    }
-    #printRoot { display: none; }
-    @media print {
-      html, body { height: auto; display: block; background: #fff; }
-      body > *:not(#printRoot) { display: none !important; }
-      #printRoot { display: block; font: 11pt/1.35 var(--font); color: #1a1a1a; }
-      .p-bar { display: flex; align-items: center; gap: 14px; background: #000; color: #fff; padding: 10px 14px;
-        -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .p-bar img { height: 20px; }
-      .p-bar .t { font-size: 13pt; font-weight: 500; }
-      .p-bar .d { margin-left: auto; font-size: 10pt; color: #ccc; }
-      .p-legend { display: flex; gap: 16px; align-items: center; padding: 8px 2px; font-size: 10pt; flex-wrap: wrap; }
-      .p-legend .k { display: inline-flex; align-items: center; gap: 6px; }
-      .p-legend .k i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .p-legend .fee { margin-left: auto; }
-      .p-legend .north { display: inline-flex; align-items: center; gap: 2px; font-weight: 700; }
-      .p-map { width: 100%; max-height: 6.3in; object-fit: contain; display: block; border: 1px solid #ccc; }
-      .p-note { font-size: 8.5pt; color: #666; margin-top: 4px; }
-      .p-list { break-before: page; }
-      .p-list table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
-      .p-list th { text-align: left; font-size: 8pt; letter-spacing: .08em; text-transform: uppercase; color: #666; border-bottom: 2px solid #000; padding: 4px 6px; }
-      .p-list td { border-bottom: 1px solid #ddd; padding: 4px 6px; vertical-align: top; }
-      .p-list td.n { text-align: right; font-variant-numeric: tabular-nums; }
     }
     @media (prefers-reduced-motion: no-preference) {
       .sheet, .workbar, .menu, .toast { animation: rise .16s ease-out; }
@@ -237,28 +224,36 @@
     </div>
 
     <div class="menu" id="printMenu" hidden>
-      <h3>Print</h3>
-      <button class="btn size" id="printPark">Whole park <small>as the map is turned</small></button>
-      <button class="btn size" id="printView">What is on screen</button>
-      <label class="custom" for="printPaper">Paper
-        <select id="printPaper">
-          <option value="11x8.5" selected>Letter</option><option value="17x11">Tabloid, 11 x 17</option>
-          <option value="24x18">Arch C, 18 x 24</option><option value="36x24">Arch D, 24 x 36</option><option value="48x36">Arch E, 36 x 48</option>
-        </select></label>
-      <label class="custom" for="printScale">Whole park at
-        <select id="printScale"><option value="0" selected>fill the paper</option><option value="1000">1:1,000</option><option value="1500">1:1,500</option><option value="2000">1:2,000</option><option value="3000">1:3,000</option></select></label>
-      <div class="msg" id="printPlan"></div>
-      <label class="custom"><input type="checkbox" id="printList" checked style="width:auto" /> Add the spot list on the next page</label>
-      <h3>Download PDF, with layers</h3>
-      <label class="custom" for="pdfTitle">Title <input id="pdfTitle" value="Girard Park" style="width:auto;flex:1" /></label>
-      <label class="custom" for="pdfSub">Subtitle <input id="pdfSub" value="Oct 9, 2026 - Drone Ortho" style="width:auto;flex:1" /></label>
-      <div class="custom">
-        <label><input type="checkbox" id="pdfTents" checked style="width:auto" /> Tent spots</label>
-        <label><input type="checkbox" id="pdfFeat" checked style="width:auto" /> Festival features</label>
-        <label><input type="checkbox" id="pdfLegend" checked style="width:auto" /> Legend</label>
+      <h3>PDF</h3>
+      <div class="seg3" id="pdfArea">
+        <button type="button" data-area="park" class="on">Whole park</button>
+        <button type="button" data-area="view">Current view</button>
+        <button type="button" data-area="box">Draw a box</button>
       </div>
-      <label class="custom" for="pdfDpi">Quality
-        <select id="pdfDpi"><option value="150" selected>Standard, 150 dpi</option><option value="220">High, 220 dpi</option></select></label>
+      <div class="two">
+        <label class="field" for="printPaper"><span class="label">Paper</span>
+          <select id="printPaper">
+            <option value="11x8.5" selected>Letter</option><option value="17x11">Tabloid, 11 x 17</option>
+            <option value="24x18">Arch C, 18 x 24</option><option value="36x24">Arch D, 24 x 36</option><option value="48x36">Arch E, 36 x 48</option>
+          </select></label>
+        <label class="field" for="pdfOrient"><span class="label">Orientation</span>
+          <select id="pdfOrient"><option value="landscape" selected>Landscape</option><option value="portrait">Portrait</option></select></label>
+      </div>
+      <div class="two">
+        <label class="field" for="printScale"><span class="label">Scale</span>
+          <select id="printScale"><option value="0" selected>Fill the paper</option><option value="500">1:500</option><option value="1000">1:1,000</option><option value="1500">1:1,500</option><option value="2000">1:2,000</option><option value="3000">1:3,000</option></select></label>
+        <label class="field" for="pdfDpi"><span class="label">Ortho detail</span>
+          <select id="pdfDpi"><option value="150">Standard, 150 dpi</option><option value="300" selected>High, 300 dpi</option></select></label>
+      </div>
+      <div class="msg" id="printPlan"></div>
+      <label class="field" for="pdfTitle"><span class="label">Title</span><input id="pdfTitle" value="Girard Park" /></label>
+      <label class="field" for="pdfSub"><span class="label">Subtitle</span><input id="pdfSub" value="Oct 9, 2026 - Drone Ortho" /></label>
+      <div class="checks">
+        <label><input type="checkbox" id="pdfTents" checked /> Tent spots</label>
+        <label><input type="checkbox" id="pdfFeat" checked /> Festival features</label>
+        <label><input type="checkbox" id="pdfLegend" checked /> Legend</label>
+        <label><input type="checkbox" id="pdfInfo" checked /> Include spot info</label>
+      </div>
       <button class="btn primary" id="pdfGo">Download PDF</button>
     </div>
 
@@ -379,11 +374,10 @@
       </div>
     </aside>
 
+    <div class="shield" id="shield" hidden></div>
+    <div class="statusbar" id="statusBar" hidden><div class="sb-text" id="sbText"></div><div class="sb-track"><div class="sb-fill" id="sbFill"></div></div></div>
     <div class="blocker" id="blocker">Loading the map…</div>
   </main>
-
-  <!-- the print sheet: empty on screen, filled just before the browser's print dialog -->
-  <div id="printRoot"></div>
 
   <script type="module">
     // ---- this festival's setup ------------------------------------------------------------
@@ -939,187 +933,140 @@
     }
     $("measureBtn").addEventListener("click", () => setMeasuring(!measuring));
 
-    // ---- print: built on this page and printed with the browser's own dialog -------------
-    // (not in a second tab: a browser stops drawing the map in a tab that is not showing, so that tab sat blank)
+    // ---- PDF: the whole park, the current view or a drawn box, at a paper size, with layers -------------
+    // The ortho and the basemap are pictures (captured screen by screen and joined, as ArcGIS Pro rasterises
+    // them too); tents, festival features, labels, legend, scale bar and north arrow are vector shapes and
+    // text. Every part sits in its own PDF layer, nested as ArcGIS Pro nests them: layout, map, layers.
     const printMenu = $("printMenu");
-    $("printBtn").addEventListener("click", () => { printMenu.hidden = !printMenu.hidden; menu.hidden = true; });
+    $("printBtn").addEventListener("click", () => { printMenu.hidden = !printMenu.hidden; menu.hidden = true; if (!printMenu.hidden) showPlan(); });
     document.addEventListener("click", (e) => { if (!printMenu.hidden && !e.target.closest("#printMenu, #printBtn")) printMenu.hidden = true; });
-    $("printPark").addEventListener("click", () => makePrint(true));
-    $("printView").addEventListener("click", () => makePrint(false));
-    const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
     const shoot = (o) => (viewElement.takeScreenshot ? viewElement.takeScreenshot(o) : viewElement.view.takeScreenshot(o));
     const settle = () => reactiveUtils.whenOnce(() => !viewElement.updating);
     const loadImg = (src) => new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = src; });
-    const printRoot = $("printRoot"), printPage = $("printPage");
-    addEventListener("afterprint", () => { printRoot.replaceChildren(); });
+    const rot = () => viewElement.rotation ?? viewElement.view?.rotation ?? 0;
     let printing = false;
 
-    async function makePrint(wholePark) {
-      if (printing) return;
-      printing = true;
-      printMenu.hidden = true;
-      const keep = current;
-      if (work) $("wCancel").click();
-      if (refWork) $("rbCancel").click();
-      if (measuring) setMeasuring(false);
-      closeSheet();
-      const before = viewElement.viewpoint?.clone();
-      const keepConstraints = viewElement.constraints;
-      const labelled = [spots, layout, services];
-      const keepLabels = labelled.map((l) => l.labelingInfo);
-      const keepRenderers = labelled.map((l) => l.renderer);
-      const rotation = viewElement.rotation ?? viewElement.view?.rotation ?? 0;   // the print keeps the map's own turn
-      blocker.textContent = "Preparing the print…"; blocker.hidden = false;
-      try {
-        const plan = printPlan(rotation);
-        // the picture is drawn at plan.dpi dots per inch of paper, finer than a screen, so symbols and labels
-        // are enlarged by the same ratio to come out at their screen size on paper
-        const grow = wholePark ? plan.dpi / 96 : 1;
-        labelled.forEach((l) => {
-          if (l.labelingInfo) l.labelingInfo = l.labelingInfo.map((c) => {
-            const n = c.clone(); n.minScale = 0;
-            if (n.symbol) { n.symbol.font.size *= grow; n.symbol.haloSize = (n.symbol.haloSize || 0) * grow; }
-            return n;
-          });
-          if (grow !== 1 && l.renderer) l.renderer = enlarged(l.renderer, grow);
-        });
-        let dataUrl;
-        if (wholePark) dataUrl = (await stitchPark(plan.scale * 96 / plan.dpi, rotation)).dataUrl;
-        else { await settle(); dataUrl = (await shoot({ format: "png" })).dataUrl; }
-        const pic = await loadImg(dataUrl);
-
-        await loadAll();
-        const counts = Object.fromEntries(STATUSES.map((s) => [s.value, 0]));
-        let booked = 0;
-        all.forEach((a) => { const st = a.status || "Open"; counts[st] = (counts[st] || 0) + 1; if (st === "Rented") booked += a.fee || 0; });
-        const legend = STATUSES.map((s) => `<span class="k"><i style="background:${s.color}"></i>${s.value} ${counts[s.value]}</span>`).join("");
-        const rows = all.map((a) => `<tr><td>${esc(a.spot_no)}</td><td>${esc(a.tent_size)}</td><td>${esc(a.status)}</td>
-          <td>${esc(a.renter)}</td><td class="n">${a.fee == null ? "" : esc(money(a.fee))}</td><td>${esc(a.notes)}</td></tr>`).join("");
-        const today = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-        const scaleNote = wholePark ? ` Ground scale 1:${plan.scale.toLocaleString()} on ${plan.paperName}.` : "";
-        const [pw, ph] = pic.width >= pic.height ? [plan.long, plan.short] : [plan.short, plan.long];
-        printPage.textContent = `@page { size: ${pw}in ${ph}in; margin: 0.4in; }
-          @media print { .p-map { max-height: ${(ph - 0.8 - 1.3).toFixed(2)}in !important; } }`;
-        printRoot.innerHTML = `
-          <div class="p-bar"><img src="logo.png" alt=""><span class="t">Girard Park - Festival Planning</span><span class="d">${esc(today)}</span></div>
-          <div class="p-legend">${legend}<span class="fee">Rented fees <b>${esc(money(booked))}</b></span>
-            <span class="north" title="North"><svg viewBox="0 0 24 24" width="20" height="20" style="transform:rotate(${Number(rotation) || 0}deg)">
-              <path d="M12 2 L18 20 L12 16 L6 20 Z" fill="#000"/></svg>N</span></div>
-          <img class="p-map" src="${dataUrl}" alt="Map of the tent spots">
-          <div class="p-note">Drone ortho flown 2026-10-09. Tent sizes are drawn true to scale.${scaleNote}</div>
-          ${$("printList").checked ? `<div class="p-list"><table><thead><tr><th>Spot</th><th>Size</th><th>Status</th><th>Renter</th><th>Fee</th><th>Notes</th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="6">No tents yet.</td></tr>`}</tbody></table></div>` : ""}`;
-        await Promise.all([...printRoot.querySelectorAll("img")].map((i) => (i.complete ? null : new Promise((r) => { i.onload = i.onerror = r; }))));
-        blocker.hidden = true;
-        window.print();
-      } catch (e) {
-        setHint("The print could not be made: " + (e.message || e));
-      } finally {
-        labelled.forEach((l, i) => { l.labelingInfo = keepLabels[i]; l.renderer = keepRenderers[i]; });
-        viewElement.constraints = keepConstraints;
-        if (before) viewElement.goTo(before, { animate: false }).catch(() => {});
-        blocker.hidden = true;
-        printing = false;
-        if (keep) select(keep.oid);
+    // the area: whole park, what is on screen, or a box dragged on the map
+    let pdfArea = "park", boxCorners = null, drawingBox = false, boxStart = null;
+    const boxG = new Graphic();
+    viewElement.graphics.add(boxG);
+    function setArea(a) {
+      pdfArea = a;
+      document.querySelectorAll("#pdfArea button").forEach((b) => b.classList.toggle("on", b.dataset.area === a));
+      if (a !== "box") boxG.geometry = null;
+      showPlan();
+    }
+    document.querySelectorAll("#pdfArea button").forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.area === "box") { printMenu.hidden = true; drawingBox = true; setHint("Drag a box over the area for the PDF."); }
+      else setArea(b.dataset.area);
+    }));
+    function boxDrag(e) {
+      if (e.action === "start") boxStart = { x: e.x, y: e.y };
+      if (!boxStart) return;
+      const c = [[boxStart.x, boxStart.y], [e.x, boxStart.y], [e.x, e.y], [boxStart.x, e.y]].map(([x, y]) => toMap({ x, y }));
+      if (c.every(Boolean)) {
+        boxCorners = c.map((p) => [p.x, p.y]);
+        boxG.geometry = new Polygon({ rings: [[...boxCorners, boxCorners[0]]], spatialReference: sr });
+        boxG.symbol = { type: "simple-fill", color: [...YELLOW, 0.15], outline: { color: [...YELLOW, 1], width: 2, style: "dash" } };
+      }
+      if (e.action === "end") {
+        drawingBox = false; boxStart = null; setHint("");
+        setArea(boxCorners ? "box" : "park");
+        printMenu.hidden = false;
       }
     }
+    function screenCorners() {
+      const w = viewElement.clientWidth || innerWidth, h = viewElement.clientHeight || innerHeight;
+      return [[0, 0], [w, 0], [w, h], [0, h]].map(([x, y]) => toMap({ x, y })).map((p) => [p.x, p.y]);
+    }
+    const areaCorners = () => (pdfArea === "box" && boxCorners ? boxCorners : pdfArea === "view" ? screenCorners() : PARK_FRAME);
+    const areaName = () => ({ park: "whole park", view: "current view", box: "drawn box" })[pdfArea];
 
-    // what a whole-park print will be: the paper, the ground scale (chosen, or the one that fills the paper)
-    // and the dots per inch the picture is built at (150, less where the picture would get too big for the browser)
-    function printPlan(rotation, maxDpi = 150) {
-      const [long, short] = $("printPaper").value.split("x").map(Number);
-      const paperName = $("printPaper").selectedOptions[0].textContent;
+    // a frame: the area seen in the map's turn, measured in screen pixels at a ground scale
+    function frameOf(corners, groundScale, rotation) {
+      const cx = corners.reduce((s, p) => s + p[0], 0) / corners.length, cy = corners.reduce((s, p) => s + p[1], 0) / corners.length;
+      const scale = groundScale * mercScale(cy), res = scale / (96 * 39.3701);   // map units per screen pixel
       const t = (rotation * Math.PI) / 180, right = [Math.cos(t), Math.sin(t)], down = [Math.sin(t), -Math.cos(t)];
-      const cx = PARK_FRAME.reduce((s, p) => s + p[0], 0) / 4, cy = PARK_FRAME.reduce((s, p) => s + p[1], 0) / 4;
-      const m = mercScale(cy);
-      const us = PARK_FRAME.map(([x, y]) => ((x - cx) * right[0] + (y - cy) * right[1]) / m);
-      const vs = PARK_FRAME.map(([x, y]) => ((x - cx) * down[0] + (y - cy) * down[1]) / m);
-      const bw = Math.max(...us) - Math.min(...us), bh = Math.max(...vs) - Math.min(...vs);   // ground metres
-      const [pw, ph] = bw >= bh ? [long, short] : [short, long];
-      const mapW = pw - 0.8, mapH = ph - 0.8 - 1.3;   // margins, the title bar, the legend and the note
-      const fit = Math.ceil((Math.max(bw / (mapW * 0.0254), bh / (mapH * 0.0254)) * 1.02) / 10) * 10;
+      const us = corners.map(([x, y]) => ((x - cx) * right[0] + (y - cy) * right[1]) / res);
+      const vs = corners.map(([x, y]) => ((x - cx) * down[0] + (y - cy) * down[1]) / res);
+      const u0 = Math.min(...us), v0 = Math.min(...vs);
+      return { cx, cy, scale, res, right, down, u0, v0, W: Math.max(...us) - u0, H: Math.max(...vs) - v0, rotation };
+    }
+    const inFrame = (f, x, y) => [((x - f.cx) * f.right[0] + (y - f.cy) * f.right[1]) / f.res - f.u0,
+                                  ((x - f.cx) * f.down[0] + (y - f.cy) * f.down[1]) / f.res - f.v0];
+
+    // the plan: paper, orientation, the ground scale (chosen, or the one that fills the paper), ortho detail
+    function pdfPlan() {
+      const [long, short] = $("printPaper").value.split("x").map(Number);
+      const portrait = $("pdfOrient").value === "portrait";
+      const pw = portrait ? short : long, ph = portrait ? long : short;
+      const T = Math.round(10 + long * 0.95), S = Math.round(T * 0.45);
+      const topIn = (T + S + 24) / 72, bottomIn = Math.max(54, T * 1.6) / 72;
+      const mapW = pw - 1, mapH = ph - 1 - topIn - bottomIn;
+      const f1 = frameOf(areaCorners(), 1, rot());            // at 1:1 one screen pixel is 1/96 in of ground
+      const gw = f1.W / 96, gh = f1.H / 96;                   // ground size in inches
+      const fit = Math.ceil((Math.max(gw / mapW, gh / mapH) * 1.02) / 10) * 10;
       const scale = Number($("printScale").value) || fit;
-      const longIn = Math.max(bw, bh) / (scale * 0.0254);
-      const dpi = Math.max(72, Math.min(maxDpi, Math.floor(14000 / ((devicePixelRatio || 1) * longIn))));
-      return { long, short, paperName, scale, dpi, fit, longIn, pw, ph };
+      const dpi = Math.max(72, Math.min(Number($("pdfDpi").value) || 300, Math.floor(16000 / ((devicePixelRatio || 1) * (Math.max(gw, gh) / scale)))));
+      return { long, short, pw, ph, T, S, topIn, bottomIn, mapW, mapH, scale, fit, dpi, rotation: rot(),
+        paperName: $("printPaper").selectedOptions[0].textContent.split(",")[0] };
     }
     function showPlan() {
-      const p = printPlan(viewElement.rotation ?? viewElement.view?.rotation ?? 0);
-      $("printPlan").textContent = `${p.paperName}: whole park at 1:${p.scale.toLocaleString()}, ${p.dpi} dots per inch.` +
-        (p.scale < p.fit ? ` At this scale the park is ${Math.round(p.longIn)} in long, so it is shrunk to fit the paper.` : "") +
-        (p.longIn > 20 ? " Large sheets take a minute or more; a computer is faster than a phone." : "");
+      const p = pdfPlan();
+      $("printPlan").textContent = `${p.paperName} ${p.pw > p.ph ? "landscape" : "portrait"}: ${areaName()} at 1:${p.scale.toLocaleString()} on the ground, ortho at ${p.dpi} dpi.` +
+        (p.scale < p.fit ? " At this scale it is bigger than the paper, so it is shrunk to fit." : "");
     }
-    ["printPaper", "printScale"].forEach((id) => $(id).addEventListener("change", showPlan));
-    $("printBtn").addEventListener("click", showPlan);
-    // a renderer with every outline, line and marker made f times bigger
-    function enlarged(r, f) {
-      const c = r.clone();
-      const grow = (s) => {
-        if (!s) return;
-        if (s.outline) s.outline.width *= f;
-        if (typeof s.size === "number") s.size *= f;
-        if (s.type === "simple-line") s.width *= f;
-      };
-      grow(c.symbol); grow(c.defaultSymbol); (c.uniqueValueInfos || []).forEach((i) => grow(i.symbol));
-      return c;
-    }
+    ["printPaper", "printScale", "pdfOrient", "pdfDpi"].forEach((id) => $(id).addEventListener("change", showPlan));
 
-    // the whole park at a set scale: screen-sized pictures taken across the park, joined into one,
-    // in the map's current turn, cropped to the park's rectangle
-    async function stitchPark(groundScale, rotation, { transparent = false, label = "Preparing the print" } = {}) {
+    // screen-sized pictures across the frame, joined into one; see-through where nothing is drawn
+    async function stitch(f, transparent, onPart) {
       viewElement.constraints = { rotationEnabled: true, snapToZoom: false };
       const vw = viewElement.clientWidth || innerWidth, vh = viewElement.clientHeight || innerHeight;
-      const cx = PARK_FRAME.reduce((s, p) => s + p[0], 0) / 4, cy = PARK_FRAME.reduce((s, p) => s + p[1], 0) / 4;
-      // the scale is on the ground, as ArcGIS Pro shows it in state plane; Web Mercator stretches it here by about 1.157
-      const scale = groundScale * mercScale(cy);
-      const res = scale / (96 * 39.3701);                       // map units per screen pixel at that scale
-      const t = (rotation * Math.PI) / 180;
-      const right = [Math.cos(t), Math.sin(t)], down = [Math.sin(t), -Math.cos(t)];   // screen axes in map units
-      const us = PARK_FRAME.map(([x, y]) => ((x - cx) * right[0] + (y - cy) * right[1]) / res);
-      const vs = PARK_FRAME.map(([x, y]) => ((x - cx) * down[0] + (y - cy) * down[1]) / res);
-      const u0 = Math.min(...us), v0 = Math.min(...vs);
-      const W = Math.max(...us) - u0, H = Math.max(...vs) - v0;
-      const nx = Math.ceil(W / vw), ny = Math.ceil(H / vh);
-      let canvas = null, ctx = null, k = 1, n = 0;
+      const nx = Math.ceil(f.W / vw), ny = Math.ceil(f.H / vh);
+      let canvas = null, ctx = null, k = 1;
       for (let j = 0; j < ny; j++) {
         for (let i = 0; i < nx; i++) {
-          blocker.textContent = `${label}, part ${++n} of ${nx * ny}…`;
-          const pu = u0 + i * vw + vw / 2, pv = v0 + j * vh + vh / 2;
-          const center = new Point({ x: cx + (pu * right[0] + pv * down[0]) * res, y: cy + (pu * right[1] + pv * down[1]) * res, spatialReference: sr });
-          await viewElement.goTo({ center, scale, rotation }, { animate: false });
+          onPart?.();
+          const pu = f.u0 + i * vw + vw / 2, pv = f.v0 + j * vh + vh / 2;
+          const center = new Point({ x: f.cx + (pu * f.right[0] + pv * f.down[0]) * f.res,
+                                     y: f.cy + (pu * f.right[1] + pv * f.down[1]) * f.res, spatialReference: sr });
+          await viewElement.goTo({ center, scale: f.scale, rotation: f.rotation }, { animate: false });
           await settle();
           const img = await loadImg((await shoot({ format: "png" })).dataUrl);
           if (!canvas) {
             k = img.width / vw;
             canvas = document.createElement("canvas");
-            canvas.width = Math.ceil(W * k); canvas.height = Math.ceil(H * k);
+            canvas.width = Math.ceil(f.W * k); canvas.height = Math.ceil(f.H * k);
             ctx = canvas.getContext("2d");
             if (!transparent) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
           }
           ctx.drawImage(img, i * vw * k, j * vh * k, vw * k, vh * k);
         }
       }
-      // a layer over others keeps its see-through parts, so it goes out as PNG; an opaque one as JPEG
-      return { dataUrl: transparent ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.92), cssW: W, cssH: H };
+      return transparent ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.92);
     }
-    // ---- download a layered PDF at the paper size ---------------------------------------------
-    // Each map layer is captured on its own and placed in its own PDF layer (optional content), so the
-    // basemap, ortho, festival features and tents can be switched on and off in Acrobat or Bluebeam.
-    // Title, legend, scale bar and north arrow are drawn as text and lines, each in its own layer too.
+    const partsOf = (f) => Math.ceil(f.W / (viewElement.clientWidth || innerWidth)) * Math.ceil(f.H / (viewElement.clientHeight || innerHeight));
+
+    // the status bar while the PDF is built
+    function status(text, fraction) {
+      $("statusBar").hidden = false; $("shield").hidden = false;
+      $("sbText").textContent = text;
+      $("sbFill").style.width = `${Math.round(Math.min(1, fraction) * 100)}%`;
+    }
+    function statusDone() { $("statusBar").hidden = true; $("shield").hidden = true; }
+
+    // pdf-lib as a module: the classic script build registered itself with the ArcGIS loader's global
+    // define() instead of setting window.PDFLib, so it never appeared
     function loadScript(src) {
       return new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s); });
     }
-    // pdf-lib as a module: the classic script build registered itself with the ArcGIS loader's global
-    // define() instead of setting window.PDFLib, so it never appeared
     let pdfLibModule = null;
     async function pdfLib() {
       if (pdfLibModule) return pdfLibModule;
-      const sources = ["https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.esm.min.js",
-                       "https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.esm.min.js"];
-      for (const src of sources) {
+      for (const src of ["https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.esm.min.js",
+                         "https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.esm.min.js"]) {
         try { pdfLibModule = await import(src); if (pdfLibModule.PDFDocument) return pdfLibModule; } catch { /* next source */ }
       }
-      // last resort: the classic build, with the global define() hidden while it loads
       const keepDefine = window.define;
       try { window.define = undefined; await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"); }
       finally { window.define = keepDefine; }
@@ -1137,98 +1084,143 @@
       if (refWork) $("rbCancel").click();
       if (measuring) setMeasuring(false);
       closeSheet();
+      const plan = pdfPlan();
+      const corners = areaCorners();
+      boxG.geometry = null;
       const before = viewElement.viewpoint?.clone();
       const keepConstraints = viewElement.constraints;
-      const labelled = [spots, layout, services];
-      const keepLabels = labelled.map((l) => l.labelingInfo);
-      const keepRenderers = labelled.map((l) => l.renderer);
       const base = viewElement.map.basemap?.baseLayers?.toArray?.() || [];
-      const all5 = [ortho, layout, services, spots, ...base];
-      const keepVisible = all5.map((l) => l.visible);
-      const rotation = viewElement.rotation ?? viewElement.view?.rotation ?? 0;
-      blocker.textContent = "Building the PDF…"; blocker.hidden = false;
+      const toggled = [ortho, layout, services, spots, ...base];
+      const keepVisible = toggled.map((l) => l.visible);
       try {
+        status("Loading the PDF library", 0);
         const L = await pdfLib();
-        const plan = printPlan(rotation, Number($("pdfDpi").value) || 150);
-        const grow = plan.dpi / 96;
-        labelled.forEach((l) => {
-          if (l.labelingInfo) l.labelingInfo = l.labelingInfo.map((c) => {
-            const n = c.clone(); n.minScale = 0;
-            if (n.symbol) { n.symbol.font.size *= grow; n.symbol.haloSize = (n.symbol.haloSize || 0) * grow; }
-            return n;
-          });
-          if (l.renderer) l.renderer = enlarged(l.renderer, grow);
-        });
-        const renderScale = plan.scale * 96 / plan.dpi;
-        const show = (list) => all5.forEach((l) => { l.visible = list.includes(l); });
-        const passes = [
-          { name: "Imagery basemap", layers: base, transparent: false },
-          { name: "Drone ortho", layers: [ortho], transparent: true },
-          ...($("pdfFeat").checked && refOk.layout ? [{ name: "Festival features", layers: [layout, services], transparent: true }] : []),
-          ...($("pdfTents").checked ? [{ name: "Tent spots", layers: [spots], transparent: true }] : []),
-        ].filter((p) => p.layers.length);
-        const shots = [];
+        const { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString, PDFOperator } = L;
+
+        // pictures: basemap and ortho, each alone
+        const f = frameOf(corners, (plan.scale * 96) / plan.dpi, plan.rotation);
+        const passes = [{ name: "Imagery basemap", layers: base, transparent: false }, { name: "Drone ortho", layers: [ortho], transparent: true }]
+          .filter((p) => p.layers.length);
+        const per = partsOf(f), total = per * passes.length;
+        let done = 0;
+        const shots = {};
         for (const p of passes) {
-          show(p.layers);
-          shots.push({ ...p, ...(await stitchPark(renderScale, rotation, { transparent: p.transparent, label: `Building the PDF: ${p.name.toLowerCase()}` })) });
+          toggled.forEach((l) => { l.visible = p.layers.includes(l); });
+          let part = 0;
+          shots[p.name] = await stitch(f, p.transparent, () => status(`${p.name}: part ${++part} of ${per}`, done++ / total));
         }
 
-        blocker.textContent = "Writing the PDF…";
-        const { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString, PDFOperator, PDFDict } = L;
+        // vectors: the features themselves
+        status("Reading tents and festival features", 1);
+        const q = { where: "1=1", outFields: ["*"], returnGeometry: true, outSpatialReference: sr };
+        const tents = $("pdfTents").checked ? (await spots.queryFeatures(q)).features : [];
+        const areas = $("pdfFeat").checked && refOk.layout ? (await layout.queryFeatures(q)).features : [];
+        const points = $("pdfFeat").checked && refOk.services ? (await services.queryFeatures(q)).features : [];
+
+        status("Writing the PDF", 1);
         const doc = await PDFDocument.create();
-        doc.setTitle(`${$("pdfTitle").value} - ${plan.paperName}`);
-        const sizeA = shots[0].cssW >= shots[0].cssH;
-        const PW = (sizeA ? plan.long : plan.short) * 72, PH = (sizeA ? plan.short : plan.long) * 72;
+        const title = $("pdfTitle").value.trim(), sub = $("pdfSub").value.trim();
+        doc.setTitle(`${title || "Festival plan"} - ${plan.paperName}`);
+        const PW = plan.pw * 72, PH = plan.ph * 72, M = 36, T = plan.T, S = plan.S;
         const page = doc.addPage([PW, PH]);
         const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
-        const long = Math.max(plan.long, plan.short);
-        const T = Math.round(10 + long * 0.95), S = Math.round(T * 0.45), M = 36;
-        const topBand = T + S + 24, bottomBand = Math.max(54, T * 1.6);
-        const area = { x: M, y: M + bottomBand, w: PW - 2 * M, h: PH - 2 * M - topBand - bottomBand };
-        // the map at true scale where it fits; shrunk to fit otherwise, and the scale bar follows
-        let iw = (shots[0].cssW / plan.dpi) * 72, ih = (shots[0].cssH / plan.dpi) * 72;
+        const area = { x: M, y: M + plan.bottomIn * 72, w: plan.mapW * 72, h: plan.mapH * 72 };
+        let iw = (f.W / plan.dpi) * 72, ih = (f.H / plan.dpi) * 72;   // true scale on paper
         const shrink = Math.min(1, area.w / iw, area.h / ih);
         iw *= shrink; ih *= shrink;
         const actual = plan.scale / shrink;
         const ix = area.x + (area.w - iw) / 2, iy = area.y + (area.h - ih) / 2;
+        const ptsPerFt = (12 / actual) * 72;
+        const toPage = ([x, y]) => { const [u, v] = inFrame(f, x, y); return [ix + (u / f.W) * iw, iy + ih - (v / f.H) * ih]; };
+        const svgOf = (rings) => rings.map((r) => r.map((pt, i) => { const [px, py] = toPage(pt); return `${i ? "L" : "M"} ${px.toFixed(2)} ${(PH - py).toFixed(2)}`; }).join(" ") + " Z").join(" ");
+        const col = (hex) => rgb(...rgba(hex, 1).slice(0, 3).map((v) => v / 255));
+        const centroid = (ring) => { const n = ring.length - 1 || 1; return [ring.slice(0, n).reduce((s, p) => s + p[0], 0) / n, ring.slice(0, n).reduce((s, p) => s + p[1], 0) / n]; };
 
-        // PDF layers: one optional-content group per name, wrapped round what it draws
-        const ocgRefs = [];
-        const props = doc.context.obj({});
-        let tagN = 0;
+        // PDF layers, nested like ArcGIS Pro's: an OCG per name, an Order tree, marked content round each part
+        const ctx = doc.context, props = ctx.obj({});
         const BDC = (L.PDFOperatorNames && L.PDFOperatorNames.BeginMarkedContentSequence) || "BDC";
         const EMC = (L.PDFOperatorNames && L.PDFOperatorNames.EndMarkedContent) || "EMC";
-        function inLayer(name, draw) {
-          const ref = doc.context.register(doc.context.obj({ Type: "OCG", Name: PDFHexString.fromText(name) }));
-          ocgRefs.push(ref);
-          const tag = `oc${++tagN}`;
-          props.set(PDFName.of(tag), ref);
-          page.pushOperators(PDFOperator.of(BDC, [PDFName.of("OC"), PDFName.of(tag)]));
-          draw();
-          page.pushOperators(PDFOperator.of(EMC));
+        const allRefs = [];
+        let tagN = 0;
+        const ocg = (name) => { const r = ctx.register(ctx.obj({ Type: "OCG", Name: PDFHexString.fromText(name) })); allRefs.push(r); return r; };
+        const open = (r) => { const tag = `oc${++tagN}`; props.set(PDFName.of(tag), r); page.pushOperators(PDFOperator.of(BDC, [PDFName.of("OC"), PDFName.of(tag)])); };
+        const close = () => page.pushOperators(PDFOperator.of(EMC));
+        const layer = (r, draw) => { open(r); draw(); close(); };
+
+        const gLayout = ocg(title || "Layout"), gMap = ocg("Map");
+        const gTents = tents.length ? ocg("Tent spots") : null;
+        const gStatus = gTents ? STATUSES.map((s) => ({ s, r: ocg(s.value) })) : [];
+        const gSpotNo = gTents ? ocg("Spot numbers") : null;
+        const gServices = points.length ? ocg("Festival services") : null;
+        const gAreas = areas.length ? ocg("Festival layout") : null;
+        const gNames = areas.length || points.length ? ocg("Feature names") : null;
+        const gOrtho = shots["Drone ortho"] ? ocg("Drone ortho") : null;
+        const gBase = shots["Imagery basemap"] ? ocg("Imagery basemap") : null;
+        const gFrame = ocg("Map frame");
+        const gLegend = $("pdfLegend").checked && tents.length ? ocg("Legend") : null;
+        const gScale = ocg("Scale bar"), gNorth = ocg("North arrow"), gTitle = ocg("Title"), gSub = sub ? ocg("Subtitle") : null;
+        const gAttr = ocg("Data source attribution");
+
+        open(gLayout);
+        open(gMap);
+        page.pushOperators(L.pushGraphicsState(), L.rectangle(ix, iy, iw, ih), L.clip(), L.endPath());
+        for (const [g, name] of [[gBase, "Imagery basemap"], [gOrtho, "Drone ortho"]]) {
+          if (!g) continue;
+          const bytes = await (await fetch(shots[name])).arrayBuffer();
+          const img = name === "Imagery basemap" ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
+          layer(g, () => page.drawImage(img, { x: ix, y: iy, width: iw, height: ih }));
         }
-        for (const s of shots) {
-          const bytes = await (await fetch(s.dataUrl)).arrayBuffer();
-          const img = s.transparent ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
-          inLayer(s.name, () => page.drawImage(img, { x: ix, y: iy, width: iw, height: ih }));
+        if (gAreas) layer(gAreas, () => areas.forEach((a) => {
+          const k = a.attributes.kind;
+          if (k === "Keep clear") page.drawSvgPath(svgOf(a.geometry.rings), { x: 0, y: PH, color: col("#D9483B"), opacity: 0.25, borderColor: col("#D9483B"), borderWidth: 1.5, borderDashArray: [6, 4] });
+          else {
+            const shade = { "Stage": 40, "Festival tent": 85, "Food or craft area": 130, "Exhibit area": 170, "Parking": 200 }[k] ?? 150;
+            page.drawSvgPath(svgOf(a.geometry.rings), { x: 0, y: PH, color: rgb(shade / 255, shade / 255, shade / 255), opacity: 0.45, borderColor: rgb(1, 1, 1), borderWidth: 1 });
+          }
+        }));
+        if (gServices) layer(gServices, () => points.forEach((p) => {
+          const [px, py] = toPage([p.geometry.x, p.geometry.y]);
+          page.drawCircle({ x: px, y: py, size: 3.5, color: rgb(1, 1, 1), borderColor: rgb(0, 0, 0), borderWidth: 1.2 });
+        }));
+        if (gTents) {
+          open(gTents);
+          gStatus.forEach(({ s, r }) => layer(r, () => tents.filter((t) => (t.attributes.status || "Open") === s.value).forEach((t) => {
+            page.drawSvgPath(svgOf(t.geometry.rings), { x: 0, y: PH, color: col(s.color), opacity: 0.45, borderColor: col(s.color), borderWidth: 1 });
+          })));
+          layer(gSpotNo, () => tents.forEach((t) => {
+            const no = String(t.attributes.spot_no ?? ""); if (!no) return;
+            const d = describe(t.geometry), side = Math.min(d.w, d.d) * ptsPerFt;
+            const size = Math.max(3.5, Math.min(10, side * 0.5));
+            const [px, py] = toPage([d.cx, d.cy]);
+            page.drawText(no, { x: px - bold.widthOfTextAtSize(no, size) / 2, y: py - size * 0.35, size, font: bold, color: rgb(0, 0, 0) });
+          }));
+          close();
         }
-        const black = rgb(0, 0, 0), grey = rgb(0.4, 0.4, 0.4);
-        inLayer("Map frame", () => page.drawRectangle({ x: ix, y: iy, width: iw, height: ih, borderColor: black, borderWidth: 0.75 }));
-        inLayer("Title", () => {
-          page.drawText($("pdfTitle").value || "", { x: M, y: PH - M - T, size: T, font: bold, color: black });
-          page.drawText($("pdfSub").value || "", { x: M, y: PH - M - T - S - 8, size: S, font, color: grey });
-          page.drawText("Basemap: Esri World Imagery. Drone ortho flown 2026-10-09.", { x: ix, y: iy - 9, size: 6.5, font, color: grey });
+        if (gNames) layer(gNames, () => {
+          areas.forEach((a) => {
+            const n = a.attributes.name; if (!n) return;
+            const [px, py] = toPage(centroid(a.geometry.rings[0]));
+            page.drawText(n, { x: px - bold.widthOfTextAtSize(n, 7) / 2, y: py - 2.5, size: 7, font: bold, color: rgb(0, 0, 0) });
+          });
+          points.forEach((p) => {
+            const n = p.attributes.name || p.attributes.kind; if (!n) return;
+            const [px, py] = toPage([p.geometry.x, p.geometry.y]);
+            page.drawText(n, { x: px - font.widthOfTextAtSize(n, 6.5) / 2, y: py + 5, size: 6.5, font: bold, color: rgb(0, 0, 0) });
+          });
         });
-        if ($("pdfLegend").checked && $("pdfTents").checked) {
-          await loadAll();
+        page.pushOperators(L.popGraphicsState());
+        layer(gFrame, () => page.drawRectangle({ x: ix, y: iy, width: iw, height: ih, borderColor: rgb(0, 0, 0), borderWidth: 0.75 }));
+        close();   // map
+
+        const black = rgb(0, 0, 0), grey = rgb(0.4, 0.4, 0.4);
+        if (gLegend) {
           const counts = Object.fromEntries(STATUSES.map((s) => [s.value, 0]));
           let booked = 0;
-          all.forEach((a) => { const st = a.status || "Open"; counts[st] = (counts[st] || 0) + 1; if (st === "Rented") booked += a.fee || 0; });
-          inLayer("Legend", () => {
-            let x = M; const y = M + bottomBand * 0.45, sw = S * 0.9;
+          tents.forEach((t) => { const st = t.attributes.status || "Open"; counts[st] = (counts[st] || 0) + 1; if (st === "Rented") booked += t.attributes.fee || 0; });
+          layer(gLegend, () => {
+            let x = M; const y = M + plan.bottomIn * 72 * 0.45, sw = S * 0.9;
             STATUSES.forEach((s) => {
-              const [r, g, b] = rgba(s.color, 1).map((v) => v / 255);
-              page.drawRectangle({ x, y, width: sw, height: sw, color: rgb(r, g, b), opacity: 0.6, borderColor: rgb(r, g, b), borderWidth: 1.5 });
+              page.drawRectangle({ x, y, width: sw, height: sw, color: col(s.color), opacity: 0.45, borderColor: col(s.color), borderWidth: 1.5 });
               const label = `${s.value} ${counts[s.value]}`;
               page.drawText(label, { x: x + sw + 5, y: y + 1, size: S * 0.85, font, color: black });
               x += sw + 5 + font.widthOfTextAtSize(label, S * 0.85) + S * 1.6;
@@ -1236,49 +1228,78 @@
             page.drawText(`Rented fees ${money(booked)}`, { x, y: y + 1, size: S * 0.85, font: bold, color: black });
           });
         }
-        inLayer("Scale bar", () => {
-          const ftPerPt = actual / 12 / 72;
-          const target = area.w * 0.25 * ftPerPt;
+        layer(gScale, () => {
+          const ftPerPt = 1 / ptsPerFt, target = iw * 0.25 * ftPerPt;
           const nice = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000].filter((v) => v <= target).pop() || 10;
-          const len = nice / ftPerPt, h = Math.max(4, T * 0.15), x0 = PW / 2 - len / 2, y0 = M + bottomBand * 0.45;
-          for (let i = 0; i < 4; i++) {
-            page.drawRectangle({ x: x0 + (i * len) / 4, y: y0, width: len / 4, height: h, color: i % 2 ? rgb(1, 1, 1) : black, borderColor: black, borderWidth: 0.75 });
-          }
+          const len = nice * ptsPerFt, h = Math.max(4, T * 0.15), x0 = PW / 2 - len / 2, y0 = M + plan.bottomIn * 72 * 0.45;
+          for (let i = 0; i < 4; i++) page.drawRectangle({ x: x0 + (i * len) / 4, y: y0, width: len / 4, height: h, color: i % 2 ? rgb(1, 1, 1) : black, borderColor: black, borderWidth: 0.75 });
           const ls = S * 0.75;
-          [[0, "0"], [len / 2, String(nice / 2)], [len, `${nice} ft`]].forEach(([dx, t]) => {
-            page.drawText(t, { x: x0 + dx - font.widthOfTextAtSize(t, ls) / 2, y: y0 + h + 4, size: ls, font, color: black });
-          });
+          [[0, "0"], [len / 2, String(nice / 2)], [len, `${nice} ft`]].forEach(([dx, t]) => page.drawText(t, { x: x0 + dx - font.widthOfTextAtSize(t, ls) / 2, y: y0 + h + 4, size: ls, font, color: black }));
           const sc = `Scale 1:${Math.round(actual).toLocaleString()} on the ground`;
           page.drawText(sc, { x: PW / 2 - font.widthOfTextAtSize(sc, ls) / 2, y: y0 - ls - 4, size: ls, font, color: grey });
         });
-        inLayer("North arrow", () => {
-          // north points this many degrees clockwise from the top of the page, as the map is turned
-          const R = T * 0.6, cx = PW - M - R * 1.6, cy = M + bottomBand * 0.5, t = (rotation * Math.PI) / 180;
-          const rot = ([x, y]) => [x * Math.cos(t) - y * Math.sin(t), x * Math.sin(t) + y * Math.cos(t)];
-          const p = [[0, -R], [R * 0.55, R * 0.75], [0, R * 0.4], [-R * 0.55, R * 0.75]].map(rot);
+        layer(gNorth, () => {
+          const R = T * 0.6, cx = PW - M - R * 1.6, cy = M + plan.bottomIn * 72 * 0.5, t = (plan.rotation * Math.PI) / 180;
+          const turn = ([x, y]) => [x * Math.cos(t) - y * Math.sin(t), x * Math.sin(t) + y * Math.cos(t)];
+          const p = [[0, -R], [R * 0.55, R * 0.75], [0, R * 0.4], [-R * 0.55, R * 0.75]].map(turn);
           page.drawSvgPath(`M ${p[0][0]} ${p[0][1]} L ${p[1][0]} ${p[1][1]} L ${p[2][0]} ${p[2][1]} L ${p[3][0]} ${p[3][1]} Z`, { x: cx, y: cy, color: black });
-          const [nx, ny] = rot([0, -R * 1.45]);
+          const [nx, ny] = turn([0, -R * 1.45]);
           page.drawText("N", { x: cx + nx - S * 0.3, y: cy - ny - S * 0.35, size: S * 0.9, font: bold, color: black });
         });
+        layer(gTitle, () => page.drawText(title, { x: M, y: PH - M - T, size: T, font: bold, color: black }));
+        if (gSub) layer(gSub, () => page.drawText(sub, { x: M, y: PH - M - T - S - 8, size: S, font, color: grey }));
+        layer(gAttr, () => page.drawText("Basemap: Esri World Imagery. Drone ortho flown 2026-10-09.", { x: ix, y: iy - 9, size: 6.5, font, color: grey }));
+        close();   // layout
         page.node.Resources().set(PDFName.of("Properties"), props);
-        doc.catalog.set(PDFName.of("OCProperties"), doc.context.obj({ OCGs: ocgRefs, D: { Order: ocgRefs, ON: ocgRefs, OFF: [] } }));
+
+        // spot info: a table on following pages of the same size
+        if ($("pdfInfo").checked && tents.length) {
+          const rows = tents.map((t) => t.attributes).sort((a, b) => (parseInt(a.spot_no, 10) || 1e9) - (parseInt(b.spot_no, 10) || 1e9));
+          const cols = [["Spot", "spot_no", 0.07], ["Size", "tent_size", 0.14], ["Status", "status", 0.09], ["Renter", "renter", 0.27], ["Fee", "fee", 0.08], ["Notes", "notes", 0.35]];
+          const fs = 9, lh = 14, usable = PW - 2 * M;
+          const fitText = (s, w) => { s = String(s ?? ""); while (s && font.widthOfTextAtSize(s, fs) > w - 6) s = s.slice(0, -2) + "…"; return s; };
+          let pg = null, y = 0;
+          const header = () => {
+            pg = doc.addPage([PW, PH]); y = PH - M;
+            pg.drawText(`${title} - spot info`, { x: M, y: y - 16, size: 16, font: bold, color: black }); y -= 36;
+            let x = M; cols.forEach(([h, , w]) => { pg.drawText(h.toUpperCase(), { x, y, size: 7.5, font: bold, color: grey }); x += usable * w; });
+            pg.drawLine({ start: { x: M, y: y - 4 }, end: { x: PW - M, y: y - 4 }, thickness: 1.2, color: black }); y -= lh + 2;
+          };
+          header();
+          rows.forEach((r) => {
+            if (y < M + lh) header();
+            let x = M;
+            cols.forEach(([, key, w]) => {
+              const v = key === "fee" ? (r.fee == null ? "" : money(r.fee)) : r[key];
+              pg.drawText(fitText(v, usable * w), { x, y, size: fs, font, color: black }); x += usable * w;
+            });
+            pg.drawLine({ start: { x: M, y: y - 4 }, end: { x: PW - M, y: y - 4 }, thickness: 0.3, color: rgb(0.8, 0.8, 0.8) });
+            y -= lh;
+          });
+        }
+
+        // the layer tree, as ArcGIS Pro writes it: layout > map > layers, then the layout's elements
+        const mapKids = [gTents, gTents ? [...gStatus.map((x) => x.r), gSpotNo] : null, gNames, gServices, gAreas, gOrtho, gBase, gFrame].filter(Boolean);
+        const order = [gLayout, [gMap, mapKids, gLegend, gScale, gNorth, gTitle, gSub, gAttr].filter(Boolean)];
+        doc.catalog.set(PDFName.of("OCProperties"), ctx.obj({ OCGs: allRefs, D: { Order: order, ON: allRefs, OFF: [] } }));
+
         const bytes = await doc.save();
         const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
         const a = document.createElement("a");
-        a.href = url; a.download = `${($("pdfTitle").value || "Festival plan").replace(/[\\/:*?"<>|]/g, "")} ${plan.paperName.split(",")[0]}.pdf`;
+        a.href = url; a.download = `${(title || "Festival plan").replace(/[\\/:*?"<>|]/g, "")} ${plan.paperName}.pdf`;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
-        setHint(`PDF downloaded: ${plan.paperName}, 1:${Math.round(actual).toLocaleString()}, ${(bytes.length / 1e6).toFixed(1)} MB, ${ocgRefs.length} layers.`);
+        setHint(`PDF downloaded: ${plan.paperName}, 1:${Math.round(actual).toLocaleString()}, ${(bytes.length / 1e6).toFixed(1)} MB.`);
         setTimeout(() => setHint(""), 6000);
       } catch (e) {
         setHint("The PDF could not be made: " + (e.message || e));
       } finally {
-        all5.forEach((l, i) => { l.visible = keepVisible[i]; });
-        labelled.forEach((l, i) => { l.labelingInfo = keepLabels[i]; l.renderer = keepRenderers[i]; });
+        toggled.forEach((l, i) => { l.visible = keepVisible[i]; });
         viewElement.constraints = keepConstraints;
         if (before) viewElement.goTo(before, { animate: false }).catch(() => {});
-        blocker.hidden = true;
+        statusDone();
         printing = false;
+        if (pdfArea === "box" && boxCorners) boxG.geometry = new Polygon({ rings: [[...boxCorners, boxCorners[0]]], spatialReference: sr });
         if (keep) select(keep.oid);
       }
     }
@@ -1413,7 +1434,7 @@
     // taps: in the bar's modes a tap moves the tent there; otherwise it selects a tent
     viewElement.addEventListener("arcgisViewClick", async (event) => {
       const p = event.detail.mapPoint;
-      if (!p || measuring) return;
+      if (!p || measuring || drawingBox || printing) return;
       if (refWork) { refTap(p); return; }
       if (work) {
         const x = describe(work.geometry);
@@ -1435,6 +1456,7 @@
     let drag = null;
     viewElement.addEventListener("arcgisViewDrag", (event) => {
       const e = event.detail;
+      if (drawingBox) { e.stopPropagation(); boxDrag(e); return; }   // dragging out the PDF's box
       if (!work) return;
       if (e.action === "start") {
         const p = toMap({ x: e.x, y: e.y });
@@ -1558,6 +1580,7 @@
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       if (!menu.hidden) { menu.hidden = true; return; }
+      if (drawingBox) { drawingBox = false; boxStart = null; setHint(""); printMenu.hidden = false; return; }
       if (!printMenu.hidden) { printMenu.hidden = true; return; }
       if (measuring) { setMeasuring(false); return; }
       if (refWork) { $("rbCancel").click(); return; }
