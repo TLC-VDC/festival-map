@@ -14,6 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" />
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
+  <style id="printPage">@page { size: landscape; margin: 0.4in; }</style>
 
   <style>
     /* Layout: black brand bar, status chips as filter and legend, the map filling the rest,
@@ -174,6 +175,29 @@
       .actions { gap: 4px; padding: 4px; }
       .actions .btn { padding: 8px 9px; font-size: 14px; }
     }
+    #printRoot { display: none; }
+    @media print {
+      html, body { height: auto; display: block; background: #fff; }
+      body > *:not(#printRoot) { display: none !important; }
+      #printRoot { display: block; font: 11pt/1.35 var(--font); color: #1a1a1a; }
+      .p-bar { display: flex; align-items: center; gap: 14px; background: #000; color: #fff; padding: 10px 14px;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .p-bar img { height: 20px; }
+      .p-bar .t { font-size: 13pt; font-weight: 500; }
+      .p-bar .d { margin-left: auto; font-size: 10pt; color: #ccc; }
+      .p-legend { display: flex; gap: 16px; align-items: center; padding: 8px 2px; font-size: 10pt; flex-wrap: wrap; }
+      .p-legend .k { display: inline-flex; align-items: center; gap: 6px; }
+      .p-legend .k i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .p-legend .fee { margin-left: auto; }
+      .p-legend .north { display: inline-flex; align-items: center; gap: 2px; font-weight: 700; }
+      .p-map { width: 100%; max-height: 6.3in; object-fit: contain; display: block; border: 1px solid #ccc; }
+      .p-note { font-size: 8.5pt; color: #666; margin-top: 4px; }
+      .p-list { break-before: page; }
+      .p-list table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+      .p-list th { text-align: left; font-size: 8pt; letter-spacing: .08em; text-transform: uppercase; color: #666; border-bottom: 2px solid #000; padding: 4px 6px; }
+      .p-list td { border-bottom: 1px solid #ddd; padding: 4px 6px; vertical-align: top; }
+      .p-list td.n { text-align: right; font-variant-numeric: tabular-nums; }
+    }
     @media (prefers-reduced-motion: no-preference) {
       .sheet, .workbar, .menu, .toast { animation: rise .16s ease-out; }
       @keyframes rise { from { opacity: 0; translate: 0 8px; } to { opacity: 1; translate: 0 0; } }
@@ -210,8 +234,10 @@
 
     <div class="menu" id="printMenu" hidden>
       <h3>Print</h3>
-      <button class="btn size" id="printPark">Whole park <small>landscape</small></button>
-      <button class="btn size" id="printView">What is on screen <small>landscape</small></button>
+      <button class="btn size" id="printPark">Whole park <small>as the map is turned</small></button>
+      <button class="btn size" id="printView">What is on screen</button>
+      <label class="custom" for="printScale">Whole park at
+        <select id="printScale"><option value="1000">1:1,000</option><option value="2000" selected>1:2,000</option><option value="3000">1:3,000</option></select></label>
       <label class="custom"><input type="checkbox" id="printList" checked style="width:auto" /> Add the spot list on the next page</label>
     </div>
 
@@ -334,6 +360,9 @@
 
     <div class="blocker" id="blocker">Loading the map…</div>
   </main>
+
+  <!-- the print sheet: empty on screen, filled just before the browser's print dialog -->
+  <div id="printRoot"></div>
 
   <script type="module">
     // ---- this festival's setup ------------------------------------------------------------
@@ -880,56 +909,44 @@
     }
     $("measureBtn").addEventListener("click", () => setMeasuring(!measuring));
 
-    // ---- print: a sheet built in a new tab, printed with the browser ---------------------
+    // ---- print: built on this page and printed with the browser's own dialog -------------
+    // (not in a second tab: a browser stops drawing the map in a tab that is not showing, so that tab sat blank)
     const printMenu = $("printMenu");
     $("printBtn").addEventListener("click", () => { printMenu.hidden = !printMenu.hidden; menu.hidden = true; });
     document.addEventListener("click", (e) => { if (!printMenu.hidden && !e.target.closest("#printMenu, #printBtn")) printMenu.hidden = true; });
     $("printPark").addEventListener("click", () => makePrint(true));
     $("printView").addEventListener("click", () => makePrint(false));
     const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const shoot = (o) => (viewElement.takeScreenshot ? viewElement.takeScreenshot(o) : viewElement.view.takeScreenshot(o));
+    const settle = () => reactiveUtils.whenOnce(() => !viewElement.updating);
+    const loadImg = (src) => new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = src; });
+    const printRoot = $("printRoot"), printPage = $("printPage");
+    addEventListener("afterprint", () => { printRoot.replaceChildren(); });
+    let printing = false;
+
     async function makePrint(wholePark) {
+      if (printing) return;
+      printing = true;
       printMenu.hidden = true;
-      const tab = window.open("", "_blank");
-      if (!tab) { setHint("The browser blocked the print tab. Allow pop-ups for this page and try again."); return; }
-      tab.document.write("<p style='font:15px sans-serif;padding:24px'>Preparing the print…</p>");
       const keep = current;
       if (work) $("wCancel").click();
+      if (refWork) $("rbCancel").click();
       if (measuring) setMeasuring(false);
       closeSheet();
       const before = viewElement.viewpoint?.clone();
       const keepConstraints = viewElement.constraints;
       const labelled = [spots, layout, services];
       const keepLabels = labelled.map((l) => l.labelingInfo);
-      let northDeg = viewElement.rotation ?? viewElement.view?.rotation ?? 0;   // which way north points on the page
+      const rotation = viewElement.rotation ?? viewElement.view?.rotation ?? 0;   // the print keeps the map's own turn
+      blocker.textContent = "Preparing the print…"; blocker.hidden = false;
       try {
         // labels at every scale for the print
         labelled.forEach((l) => { if (l.labelingInfo) l.labelingInfo = l.labelingInfo.map((c) => { const n = c.clone(); n.minScale = 0; return n; }); });
-        let area = null, turned = false;
-        if (wholePark) {
-          // turn the map so the park lies along the screen's long side, fit the park itself, and crop to it
-          viewElement.constraints = { rotationEnabled: true };
-          const vw = viewElement.clientWidth || innerWidth, vh = viewElement.clientHeight || innerHeight;
-          turned = vh > vw;   // a tall screen: lay the park up it, then turn the picture for the landscape page
-          const [a, b, c] = PARK_FRAME;
-          const len = Math.hypot(b[0] - a[0], b[1] - a[1]), wid = Math.hypot(c[0] - b[0], c[1] - b[1]);
-          const cx = PARK_FRAME.reduce((s, p) => s + p[0], 0) / 4, cy = PARK_FRAME.reduce((s, p) => s + p[1], 0) / 4;
-          const res = Math.max(len / ((turned ? vh : vw) * 0.96), wid / ((turned ? vw : vh) * 0.96));
-          const rotation = turned ? 360 - PARK_BEARING : 90 - PARK_BEARING;
-          await viewElement.goTo({ center: new Point({ x: cx, y: cy, spatialReference: sr }), scale: res * 96 * 39.3701, rotation }, { animate: false });
-          await reactiveUtils.whenOnce(() => !viewElement.updating);
-          const pts = PARK_FRAME.map(([x, y]) => toScreen(new Point({ x, y, spatialReference: sr })));
-          const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
-          const x0 = Math.max(0, Math.floor(Math.min(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys)));
-          area = { x: x0, y: y0, width: Math.min(vw, Math.ceil(Math.max(...xs))) - x0, height: Math.min(vh, Math.ceil(Math.max(...ys))) - y0 };
-          northDeg = turned ? rotation - 90 : rotation;
-        }
-        await reactiveUtils.whenOnce(() => !viewElement.updating);
-        const shoot = viewElement.takeScreenshot ? (o) => viewElement.takeScreenshot(o) : (o) => viewElement.view.takeScreenshot(o);
-        const opts = { format: "png", ...(area ? { area } : {}) };
-        let shot;
-        try { shot = await shoot({ ...opts, width: Math.round((area ? area.width : viewElement.clientWidth || innerWidth) * 2) }); }
-        catch { shot = await shoot(opts); }
-        if (turned) shot = { dataUrl: await turnPicture(shot.dataUrl) };
+        let dataUrl;
+        if (wholePark) dataUrl = await stitchPark(Number($("printScale").value) || 2000, rotation);
+        else { await settle(); dataUrl = (await shoot({ format: "png" })).dataUrl; }
+        const pic = await loadImg(dataUrl);
+
         await loadAll();
         const counts = Object.fromEntries(STATUSES.map((s) => [s.value, 0]));
         let booked = 0;
@@ -938,66 +955,66 @@
         const rows = all.map((a) => `<tr><td>${esc(a.spot_no)}</td><td>${esc(a.tent_size)}</td><td>${esc(a.status)}</td>
           <td>${esc(a.renter)}</td><td class="n">${a.fee == null ? "" : esc(money(a.fee))}</td><td>${esc(a.notes)}</td></tr>`).join("");
         const today = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-        const logo = new URL("logo.png", location.href).href;
-        tab.document.open();
-        tab.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Girard Park - Festival Planning ${esc(today)}</title>
-<style>
-  @page { size: landscape; margin: 0.4in; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 11pt/1.35 Roboto, "Helvetica Neue", Arial, sans-serif; color: #1a1a1a; }
-  .bar { display: flex; align-items: center; gap: 14px; background: #000; color: #fff; padding: 10px 14px;
-    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .bar img { height: 20px; }
-  .bar .t { font-size: 13pt; font-weight: 500; }
-  .bar .d { margin-left: auto; font-size: 10pt; color: #ccc; }
-  .legend { display: flex; gap: 16px; align-items: center; padding: 8px 2px; font-size: 10pt; flex-wrap: wrap; }
-  .k { display: inline-flex; align-items: center; gap: 6px; }
-  .k i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .legend .fee { margin-left: auto; }
-  .north { display: inline-flex; align-items: center; gap: 2px; font-weight: 700; font-size: 10pt; }
-  .map { width: 100%; max-height: 6.4in; object-fit: contain; display: block; border: 1px solid #ccc; }
-  .note { font-size: 8.5pt; color: #666; margin-top: 4px; }
-  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 6px; }
-  th { text-align: left; font-size: 8pt; letter-spacing: .08em; text-transform: uppercase; color: #666; border-bottom: 2px solid #000; padding: 4px 6px; }
-  td { border-bottom: 1px solid #ddd; padding: 4px 6px; vertical-align: top; }
-  td.n { text-align: right; font-variant-numeric: tabular-nums; }
-  .list { break-before: page; }
-  @media screen { body { padding: 16px; max-width: 11in; margin: 0 auto; } }
-</style></head><body>
-  <div class="bar"><img src="${esc(logo)}" alt=""><span class="t">Girard Park - Festival Planning</span><span class="d">${esc(today)}</span></div>
-  <div class="legend">${legend}<span class="fee">Rented fees <b>${esc(money(booked))}</b></span>
-    <span class="north" title="North"><svg viewBox="0 0 24 24" width="22" height="22" style="transform:rotate(${Number(northDeg) || 0}deg)">
-      <path d="M12 2 L18 20 L12 16 L6 20 Z" fill="#000"/></svg>N</span></div>
-  <img class="map" src="${shot.dataUrl}" alt="Map of the tent spots">
-  <div class="note">Drone ortho flown 2026-10-09. Tent sizes are drawn true to scale.</div>
-  ${$("printList").checked ? `<div class="list"><table><thead><tr><th>Spot</th><th>Size</th><th>Status</th><th>Renter</th><th>Fee</th><th>Notes</th></tr></thead>
-  <tbody>${rows || `<tr><td colspan="6">No tents yet.</td></tr>`}</tbody></table></div>` : ""}
-  <script>window.addEventListener("load", () => setTimeout(() => window.print(), 300));<\/script>
-</body></html>`);
-        tab.document.close();
+        const scaleNote = wholePark ? ` Drawn at 1:${Number($("printScale").value).toLocaleString()} and fitted to the page.` : "";
+        printPage.textContent = `@page { size: ${pic.width >= pic.height ? "landscape" : "portrait"}; margin: 0.4in; }`;
+        printRoot.innerHTML = `
+          <div class="p-bar"><img src="logo.png" alt=""><span class="t">Girard Park - Festival Planning</span><span class="d">${esc(today)}</span></div>
+          <div class="p-legend">${legend}<span class="fee">Rented fees <b>${esc(money(booked))}</b></span>
+            <span class="north" title="North"><svg viewBox="0 0 24 24" width="20" height="20" style="transform:rotate(${Number(rotation) || 0}deg)">
+              <path d="M12 2 L18 20 L12 16 L6 20 Z" fill="#000"/></svg>N</span></div>
+          <img class="p-map" src="${dataUrl}" alt="Map of the tent spots">
+          <div class="p-note">Drone ortho flown 2026-10-09. Tent sizes are drawn true to scale.${scaleNote}</div>
+          ${$("printList").checked ? `<div class="p-list"><table><thead><tr><th>Spot</th><th>Size</th><th>Status</th><th>Renter</th><th>Fee</th><th>Notes</th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="6">No tents yet.</td></tr>`}</tbody></table></div>` : ""}`;
+        await Promise.all([...printRoot.querySelectorAll("img")].map((i) => (i.complete ? null : new Promise((r) => { i.onload = i.onerror = r; }))));
+        blocker.hidden = true;
+        window.print();
       } catch (e) {
-        tab.document.body.textContent = "The print could not be made: " + (e.message || e);
+        setHint("The print could not be made: " + (e.message || e));
       } finally {
         labelled.forEach((l, i) => { l.labelingInfo = keepLabels[i]; });
         viewElement.constraints = keepConstraints;
-        if (wholePark && before) viewElement.goTo(before, { animate: false }).catch(() => {});
+        if (before) viewElement.goTo(before, { animate: false }).catch(() => {});
+        blocker.hidden = true;
+        printing = false;
         if (keep) select(keep.oid);
       }
     }
-    // a quarter turn anticlockwise, so a park laid up a tall screen lies across the landscape page
-    function turnPicture(dataUrl) {
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-          const cv = document.createElement("canvas");
-          cv.width = img.height; cv.height = img.width;
-          const ctx = cv.getContext("2d");
-          ctx.translate(0, cv.height); ctx.rotate(-Math.PI / 2); ctx.drawImage(img, 0, 0);
-          resolve(cv.toDataURL("image/png"));
-        };
-        img.onerror = reject;
-        img.src = dataUrl;
-      });
+
+    // the whole park at a set scale: screen-sized pictures taken across the park, joined into one,
+    // in the map's current turn, cropped to the park's rectangle
+    async function stitchPark(scale, rotation) {
+      viewElement.constraints = { rotationEnabled: true, snapToZoom: false };
+      const vw = viewElement.clientWidth || innerWidth, vh = viewElement.clientHeight || innerHeight;
+      const res = scale / (96 * 39.3701);                       // map units per screen pixel at that scale
+      const t = (rotation * Math.PI) / 180;
+      const right = [Math.cos(t), Math.sin(t)], down = [Math.sin(t), -Math.cos(t)];   // screen axes in map units
+      const cx = PARK_FRAME.reduce((s, p) => s + p[0], 0) / 4, cy = PARK_FRAME.reduce((s, p) => s + p[1], 0) / 4;
+      const us = PARK_FRAME.map(([x, y]) => ((x - cx) * right[0] + (y - cy) * right[1]) / res);
+      const vs = PARK_FRAME.map(([x, y]) => ((x - cx) * down[0] + (y - cy) * down[1]) / res);
+      const u0 = Math.min(...us), v0 = Math.min(...vs);
+      const W = Math.max(...us) - u0, H = Math.max(...vs) - v0;
+      const nx = Math.ceil(W / vw), ny = Math.ceil(H / vh);
+      let canvas = null, ctx = null, k = 1, n = 0;
+      for (let j = 0; j < ny; j++) {
+        for (let i = 0; i < nx; i++) {
+          blocker.textContent = `Preparing the print, part ${++n} of ${nx * ny}…`;
+          const pu = u0 + i * vw + vw / 2, pv = v0 + j * vh + vh / 2;
+          const center = new Point({ x: cx + (pu * right[0] + pv * down[0]) * res, y: cy + (pu * right[1] + pv * down[1]) * res, spatialReference: sr });
+          await viewElement.goTo({ center, scale, rotation }, { animate: false });
+          await settle();
+          const img = await loadImg((await shoot({ format: "png" })).dataUrl);
+          if (!canvas) {
+            k = img.width / vw;
+            canvas = document.createElement("canvas");
+            canvas.width = Math.ceil(W * k); canvas.height = Math.ceil(H * k);
+            ctx = canvas.getContext("2d");
+            ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
+          ctx.drawImage(img, i * vw * k, j * vh * k, vw * k, vh * k);
+        }
+      }
+      return canvas.toDataURL("image/jpeg", 0.92);
     }
     $("toastUndo").addEventListener("click", undoLast);
     let toastTimer = null;
@@ -1038,7 +1055,7 @@
     // ---- placing and adjusting: nothing is saved until the yellow bar's button -----------
     const menu = $("menu");
     $("addBtn").addEventListener("click", () => { menu.hidden = !menu.hidden; });
-    document.querySelectorAll(".menu .size").forEach((b) => b.addEventListener("click", () => startNew(b.dataset.size)));
+    document.querySelectorAll("#menu .size[data-size]").forEach((b) => b.addEventListener("click", () => startNew(b.dataset.size)));
     $("customGo").addEventListener("click", () => startNew("Custom"));
     document.addEventListener("click", (e) => { if (!menu.hidden && !e.target.closest("#menu, #addBtn")) menu.hidden = true; });
 
